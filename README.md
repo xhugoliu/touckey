@@ -1,17 +1,14 @@
 # Touckey
 
-Touckey is an Android app that turns a phone into a Bluetooth keyboard and touchpad for desktop systems.
+Touckey 是一个 Android 应用，可将手机变成面向桌面系统的蓝牙键盘与触摸板。
 
-## Vision
+## 文档
 
-- QMK-inspired layers, tap-hold behaviors, combos, and macros
-- Touchpad gestures mapped to mouse, scroll, and shortcut actions
-- Pure phone-side Bluetooth HID with no desktop driver or companion app
+- [docs/README.md](./docs/README.md)
+- [docs/product-direction.md](./docs/product-direction.md)
+- [docs/mvp-roadmap.md](./docs/mvp-roadmap.md)
+- [docs/architecture-outline.md](./docs/architecture-outline.md)
 
-## Status
-
-Repository initialized. Architecture and implementation to follow.
-
-## License
+## 许可证
 
 MIT
