@@ -4,8 +4,6 @@ import android.content.Context
 import io.github.xhugoliu.touckey.config.ConfigRepository
 import io.github.xhugoliu.touckey.config.InMemoryConfigRepository
 import io.github.xhugoliu.touckey.feature.control.ControlPresenter
-import io.github.xhugoliu.touckey.gesture.DefaultGestureInterpreter
-import io.github.xhugoliu.touckey.gesture.GestureInterpreter
 import io.github.xhugoliu.touckey.hid.BluetoothHidController
 import io.github.xhugoliu.touckey.hid.HidGateway
 import io.github.xhugoliu.touckey.input.ActionDispatcher
@@ -22,12 +20,9 @@ class AppContainer(
     val hidGateway: HidGateway = bluetoothHidController
     val sessionController: SessionController = bluetoothHidController
     val mappingEngine: MappingEngine = PresetMappingEngine(configRepository)
-    val gestureInterpreter: GestureInterpreter = DefaultGestureInterpreter(configRepository)
     val actionDispatcher: ActionDispatcher = QueuedActionDispatcher(mappingEngine, hidGateway, sessionController)
     val controlPresenter: ControlPresenter =
         ControlPresenter(
-            mappingEngine = mappingEngine,
-            gestureInterpreter = gestureInterpreter,
             actionDispatcher = actionDispatcher,
         )
 }

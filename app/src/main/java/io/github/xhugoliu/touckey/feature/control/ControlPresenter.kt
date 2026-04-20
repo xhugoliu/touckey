@@ -1,52 +1,26 @@
 package io.github.xhugoliu.touckey.feature.control
 
-import io.github.xhugoliu.touckey.gesture.GestureInterpreter
+import io.github.xhugoliu.touckey.core.model.ConnectionStatus
 import io.github.xhugoliu.touckey.input.ActionDispatcher
 import io.github.xhugoliu.touckey.input.DispatchResult
 import io.github.xhugoliu.touckey.input.InputAction
-import io.github.xhugoliu.touckey.input.MappingEngine
 import io.github.xhugoliu.touckey.session.SessionSnapshot
 
 class ControlPresenter(
-    private val mappingEngine: MappingEngine,
-    private val gestureInterpreter: GestureInterpreter,
     private val actionDispatcher: ActionDispatcher,
 ) {
-    fun buildUiState(
-        sessionSnapshot: SessionSnapshot,
-        lastDispatchMessage: String? = null,
-    ): ControlUiState {
+    fun buildUiState(sessionSnapshot: SessionSnapshot): ControlUiState {
+        val hostName = sessionSnapshot.host?.name
+
         return ControlUiState(
-            connectionLabel = sessionSnapshot.status.label,
-            connectionDetail = sessionSnapshot.detail,
-            hostLabel =
-                sessionSnapshot.host?.let { "${it.name} · ${it.address}" }
-                    ?: "等待首个已配对桌面设备",
-            adapterLabel = sessionSnapshot.adapterName ?: "当前手机蓝牙名尚不可用",
-            quickActions =
-                mappingEngine.quickActions().map {
-                    ControlQuickAction(
-                        id = it.id,
-                        label = it.label,
-                        detail = it.detail,
-                    )
-                },
-            gestureHints =
-                gestureInterpreter.supportedBindings().map {
-                    ControlGestureHint(
-                        title = it.title,
-                        detail = it.detail,
-                    )
-                },
-            environmentActions = buildEnvironmentActions(sessionSnapshot),
-            canSendQuickActions = sessionSnapshot.status == io.github.xhugoliu.touckey.core.model.ConnectionStatus.Connected,
-            foregroundHint =
-                if (sessionSnapshot.isAppRegistered) {
-                    "Android 的 BluetoothHidDevice 在应用不处于前台时可能被系统自动注销。测试配对时请保持 Touckey 打开，或启动前台服务。"
-                } else {
-                    null
-                },
-            lastDispatchMessage = lastDispatchMessage,
+            connection =
+                ControlConnectionUiState(
+                    label = buildConnectionLabel(sessionSnapshot, hostName),
+                    detail = buildConnectionDetail(sessionSnapshot, hostName),
+                    accent = buildAccent(sessionSnapshot.status),
+                ),
+            setupPrompt = buildSetupPrompt(sessionSnapshot),
+            isInputEnabled = sessionSnapshot.status == ConnectionStatus.Connected,
         )
     }
 
@@ -54,61 +28,147 @@ class ControlPresenter(
 
     fun dispatch(action: InputAction): DispatchResult = actionDispatcher.dispatch(action)
 
-    private fun buildEnvironmentActions(sessionSnapshot: SessionSnapshot): List<ControlEnvironmentAction> {
-        val actions = mutableListOf<ControlEnvironmentAction>()
+    private fun buildConnectionLabel(
+        sessionSnapshot: SessionSnapshot,
+        hostName: String?,
+    ): String =
+        when (sessionSnapshot.status) {
+            ConnectionStatus.Connected -> hostName ?: "Connected"
+            ConnectionStatus.Ready -> "Ready"
+            ConnectionStatus.NeedsRegistration -> "Register HID"
+            ConnectionStatus.MissingPermission -> "Permission"
+            ConnectionStatus.BluetoothDisabled -> "Bluetooth Off"
+            ConnectionStatus.Initializing -> "Starting"
+            ConnectionStatus.Unsupported -> "Unsupported"
+            ConnectionStatus.Error -> "Attention"
+        }
 
+    private fun buildConnectionDetail(
+        sessionSnapshot: SessionSnapshot,
+        hostName: String?,
+    ): String =
+        when (sessionSnapshot.status) {
+            ConnectionStatus.Connected -> "Connected to ${hostName ?: "desktop"}"
+            ConnectionStatus.Ready -> "Registered and waiting for a desktop to connect."
+            ConnectionStatus.NeedsRegistration -> "Bluetooth is available, but the HID profile is not registered yet."
+            ConnectionStatus.MissingPermission -> "Nearby devices permission is required before Touckey can appear as a keyboard and touchpad."
+            ConnectionStatus.BluetoothDisabled -> "Turn Bluetooth on to register and pair Touckey."
+            ConnectionStatus.Initializing -> "Preparing the Bluetooth HID environment."
+            ConnectionStatus.Unsupported -> sessionSnapshot.detail
+            ConnectionStatus.Error -> sessionSnapshot.detail
+        }
+
+    private fun buildAccent(status: ConnectionStatus): ControlStatusAccent =
+        when (status) {
+            ConnectionStatus.Connected -> ControlStatusAccent.Positive
+            ConnectionStatus.MissingPermission,
+            ConnectionStatus.BluetoothDisabled,
+            ConnectionStatus.NeedsRegistration,
+            ConnectionStatus.Ready,
+            -> ControlStatusAccent.Warning
+            ConnectionStatus.Error,
+            ConnectionStatus.Unsupported,
+            -> ControlStatusAccent.Critical
+            ConnectionStatus.Initializing -> ControlStatusAccent.Neutral
+        }
+
+    private fun buildSetupPrompt(sessionSnapshot: SessionSnapshot): ControlSetupPrompt? {
         if (!sessionSnapshot.hasRequiredPermissions) {
-            actions +=
-                ControlEnvironmentAction(
-                    id = ControlEnvironmentActionId.GrantPermissions,
-                    label = "授予蓝牙权限",
-                    detail = "请求 Nearby devices 权限，允许注册 HID 与广播设备。",
-                )
+            return ControlSetupPrompt(
+                title = "Grant Bluetooth access",
+                detail = "Allow Nearby devices so Touckey can register the HID profile and talk to your desktop.",
+                actions =
+                    listOf(
+                        ControlEnvironmentAction(
+                            id = ControlEnvironmentActionId.GrantPermissions,
+                            label = "Grant access",
+                        ),
+                    ),
+            )
         }
 
         if (!sessionSnapshot.isBluetoothEnabled) {
-            actions +=
-                ControlEnvironmentAction(
-                    id = ControlEnvironmentActionId.EnableBluetooth,
-                    label = "开启蓝牙",
-                    detail = "蓝牙关闭时无法注册 HID 设备身份。",
-                )
-        }
-
-        if (sessionSnapshot.hasRequiredPermissions && sessionSnapshot.isBluetoothEnabled && !sessionSnapshot.isAppRegistered) {
-            actions +=
-                ControlEnvironmentAction(
-                    id = ControlEnvironmentActionId.RegisterHid,
-                    label = "注册 HID 设备",
-                    detail = "向系统注册 Touckey 的键盘/鼠标/媒体控制 report。",
-                )
-        }
-
-        if (sessionSnapshot.isAppRegistered && sessionSnapshot.host == null) {
-            actions +=
-                ControlEnvironmentAction(
-                    id = ControlEnvironmentActionId.MakeDiscoverable,
-                    label = "让电脑发现 5 分钟",
-                    detail = "打开系统弹窗，让桌面端蓝牙设置能搜索到当前手机。",
-                )
-        }
-
-        actions +=
-            ControlEnvironmentAction(
-                id = ControlEnvironmentActionId.RefreshStatus,
-                label = "刷新状态",
-                detail = "重新读取蓝牙、权限和 HID 注册状态。",
+            return ControlSetupPrompt(
+                title = "Turn Bluetooth on",
+                detail = "Touckey needs the phone Bluetooth radio enabled before it can act as a keyboard and touchpad.",
+                actions =
+                    listOf(
+                        ControlEnvironmentAction(
+                            id = ControlEnvironmentActionId.EnableBluetooth,
+                            label = "Enable Bluetooth",
+                        ),
+                    ),
             )
-
-        if (sessionSnapshot.isKeepAliveServiceRunning) {
-            actions +=
-                ControlEnvironmentAction(
-                    id = ControlEnvironmentActionId.StopKeepAlive,
-                    label = "停止前台服务",
-                    detail = "停止保持 HID 前台存活的通知服务。",
-                )
         }
 
-        return actions
+        if (!sessionSnapshot.isAppRegistered) {
+            return ControlSetupPrompt(
+                title = "Register Touckey",
+                detail = "Initialize the Bluetooth HID identity so the phone can show up as a keyboard and touchpad.",
+                actions =
+                    listOf(
+                        ControlEnvironmentAction(
+                            id = ControlEnvironmentActionId.RegisterHid,
+                            label = "Register HID",
+                        ),
+                    ),
+            )
+        }
+
+        if (sessionSnapshot.status == ConnectionStatus.Connected) {
+            return null
+        }
+
+        if (sessionSnapshot.status == ConnectionStatus.Initializing) {
+            return ControlSetupPrompt(
+                title = "Preparing Touckey",
+                detail = "The HID service is starting up. Refresh in a moment if this state does not clear.",
+                actions =
+                    listOf(
+                        ControlEnvironmentAction(
+                            id = ControlEnvironmentActionId.RefreshStatus,
+                            label = "Refresh",
+                        ),
+                    ),
+            )
+        }
+
+        if (sessionSnapshot.status == ConnectionStatus.Error || sessionSnapshot.status == ConnectionStatus.Unsupported) {
+            return ControlSetupPrompt(
+                title = "Connection needs attention",
+                detail = sessionSnapshot.detail,
+                actions =
+                    listOf(
+                        ControlEnvironmentAction(
+                            id = ControlEnvironmentActionId.RefreshStatus,
+                            label = "Refresh",
+                        ),
+                    ),
+            )
+        }
+
+        return ControlSetupPrompt(
+            title = "Pair with your desktop",
+            detail =
+                buildString {
+                    append("Open the desktop Bluetooth settings and search for Touckey.")
+                    sessionSnapshot.adapterName?.let { adapterName ->
+                        append(" Phone name: ")
+                        append(adapterName)
+                        append(".")
+                    }
+                },
+            actions =
+                listOf(
+                    ControlEnvironmentAction(
+                        id = ControlEnvironmentActionId.MakeDiscoverable,
+                        label = "Make discoverable",
+                    ),
+                    ControlEnvironmentAction(
+                        id = ControlEnvironmentActionId.RefreshStatus,
+                        label = "Refresh",
+                    ),
+                ),
+        )
     }
 }

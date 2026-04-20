@@ -23,24 +23,90 @@ sealed interface HidEncodingResult {
 
 object HidReportEncoder {
     private val modifierBits =
-        mapOf(
-            "Ctrl" to 0x01,
-            "Shift" to 0x02,
-            "Alt" to 0x04,
-            "Win" to 0x08,
-        )
+        buildMap {
+            put("Ctrl", 0x01)
+            put("Control", 0x01)
+            put("Shift", 0x02)
+            put("Alt", 0x04)
+            put("Option", 0x04)
+            put("Win", 0x08)
+            put("Cmd", 0x08)
+            put("Command", 0x08)
+            put("Meta", 0x08)
+            put("Super", 0x08)
+        }
 
     private val keyUsages =
-        mapOf(
-            "Tab" to 0x2B,
-            "Up" to 0x52,
-            "Left" to 0x50,
-            "Right" to 0x4F,
-            "Down" to 0x51,
-            "Space" to 0x2C,
-            "Enter" to 0x28,
-            "Escape" to 0x29,
-        )
+        buildMap {
+            ('A'..'Z').forEachIndexed { index, char ->
+                put(char.toString(), 0x04 + index)
+                put(char.lowercase(), 0x04 + index)
+            }
+
+            listOf(
+                "1" to 0x1E,
+                "2" to 0x1F,
+                "3" to 0x20,
+                "4" to 0x21,
+                "5" to 0x22,
+                "6" to 0x23,
+                "7" to 0x24,
+                "8" to 0x25,
+                "9" to 0x26,
+                "0" to 0x27,
+            ).forEach { (label, usage) ->
+                put(label, usage)
+            }
+
+            put("Enter", 0x28)
+            put("Escape", 0x29)
+            put("Esc", 0x29)
+            put("Backspace", 0x2A)
+            put("Tab", 0x2B)
+            put("Space", 0x2C)
+            put("Minus", 0x2D)
+            put("-", 0x2D)
+            put("Equal", 0x2E)
+            put("=", 0x2E)
+            put("LeftBracket", 0x2F)
+            put("[", 0x2F)
+            put("RightBracket", 0x30)
+            put("]", 0x30)
+            put("Backslash", 0x31)
+            put("\\", 0x31)
+            put("Semicolon", 0x33)
+            put(";", 0x33)
+            put("Quote", 0x34)
+            put("'", 0x34)
+            put("Grave", 0x35)
+            put("`", 0x35)
+            put("Comma", 0x36)
+            put(",", 0x36)
+            put("Period", 0x37)
+            put(".", 0x37)
+            put("Slash", 0x38)
+            put("/", 0x38)
+            put("CapsLock", 0x39)
+
+            (1..12).forEach { functionNumber ->
+                put("F$functionNumber", 0x39 + functionNumber)
+            }
+
+            put("PrintScreen", 0x46)
+            put("ScrollLock", 0x47)
+            put("Pause", 0x48)
+            put("Insert", 0x49)
+            put("Home", 0x4A)
+            put("PageUp", 0x4B)
+            put("Delete", 0x4C)
+            put("End", 0x4D)
+            put("PageDown", 0x4E)
+            put("Right", 0x4F)
+            put("Left", 0x50)
+            put("Down", 0x51)
+            put("Up", 0x52)
+            put("Menu", 0x65)
+        }
 
     private val consumerUsages =
         mapOf(

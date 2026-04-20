@@ -3,12 +3,16 @@ package io.github.xhugoliu.touckey
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import io.github.xhugoliu.touckey.feature.control.ControlEnvironmentActionId
 import io.github.xhugoliu.touckey.hid.BluetoothHidForegroundService
 import io.github.xhugoliu.touckey.ui.TouckeyApp
@@ -34,13 +38,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         enableEdgeToEdge()
+        configureImmersiveMode()
 
         setContent {
             TouckeyTheme {
                 TouckeyApp(
                     appContainer = appContainer,
                     onEnvironmentAction = ::handleEnvironmentAction,
+                    onExit = ::minimizeControlConsole,
                 )
             }
         }
@@ -48,7 +55,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        configureImmersiveMode()
         refreshAndEnsureRegistered()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            configureImmersiveMode()
+        }
     }
 
     private fun handleEnvironmentAction(actionId: ControlEnvironmentActionId): String =
@@ -112,5 +127,19 @@ class MainActivity : ComponentActivity() {
     private fun refreshAndEnsureRegistered() {
         appContainer.sessionController.refreshState()
         appContainer.sessionController.ensureRegistered()
+    }
+
+    private fun configureImmersiveMode() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView)?.apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    private fun minimizeControlConsole() {
+        if (!moveTaskToBack(true)) {
+            finish()
+        }
     }
 }

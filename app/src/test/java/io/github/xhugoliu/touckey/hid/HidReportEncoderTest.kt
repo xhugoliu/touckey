@@ -55,4 +55,38 @@ class HidReportEncoderTest {
         assertEquals(-12, result.packets.single().payload[3].toInt())
         assertEquals(10, result.packets.single().payload[4].toInt())
     }
+
+    @Test
+    fun `keyboard encoding supports full keyboard aliases and modifiers`() {
+        val result =
+            HidReportEncoder.encode(
+                InputAction.KeyComboAction(
+                    keys = listOf("A", "Delete"),
+                    modifiers = listOf("Shift", "Cmd"),
+                ),
+                currentMouseButtons = 0,
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0x0A, result.packets.first().payload[0].toInt())
+        assertEquals(0x04, result.packets.first().payload[2].toInt())
+        assertEquals(0x4C, result.packets.first().payload[3].toInt())
+        assertEquals(0, result.packets.last().payload[0].toInt())
+    }
+
+    @Test
+    fun `function and navigation keys are mapped for keyboard page`() {
+        val result =
+            HidReportEncoder.encode(
+                InputAction.KeyComboAction(
+                    keys = listOf("F12", "PageDown", "Home"),
+                    modifiers = listOf("Option"),
+                ),
+                currentMouseButtons = 0,
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0x04, result.packets.first().payload[0].toInt())
+        assertEquals(0x45, result.packets.first().payload[2].toInt())
+        assertEquals(0x4E, result.packets.first().payload[3].toInt())
+        assertEquals(0x4A, result.packets.first().payload[4].toInt())
+    }
 }

@@ -2,10 +2,13 @@ package io.github.xhugoliu.touckey.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Ink900 = Color(0xFF11151C)
-val Ink700 = Color(0xFF2A3441)
-val Sand050 = Color(0xFFF7F2EA)
-val Sand200 = Color(0xFFE4D6C3)
-val Signal500 = Color(0xFFCC6D2B)
-val Moss500 = Color(0xFF56705B)
-val Fog100 = Color(0xFFE7EBF0)
+val Graphite950 = Color(0xFF0A0A0A)
+val Graphite900 = Color(0xFF121212)
+val Graphite800 = Color(0xFF1A1A1A)
+val Graphite700 = Color(0xFF262626)
+val Graphite500 = Color(0xFF707070)
+val Graphite300 = Color(0xFFC9C9C9)
+val Graphite200 = Color(0xFFDCDCDC)
+val Graphite100 = Color(0xFFEEEEEE)
+val Paper050 = Color(0xFFF6F6F6)
+val Paper000 = Color(0xFFFFFFFF)
