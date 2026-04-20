@@ -27,6 +27,7 @@ import io.github.xhugoliu.touckey.ui.theme.TouckeyTheme
 fun ControlScreen(
     uiState: ControlUiState,
     onQuickActionTap: (String) -> Unit,
+    onEnvironmentActionTap: (ControlEnvironmentActionId) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -36,7 +37,7 @@ fun ControlScreen(
                     Column {
                         Text(text = "Touckey")
                         Text(
-                            text = "Android 端输入控制骨架",
+                            text = "Bluetooth HID 最小可用链路",
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
@@ -57,6 +58,10 @@ fun ControlScreen(
                     connectionLabel = uiState.connectionLabel,
                     connectionDetail = uiState.connectionDetail,
                     hostLabel = uiState.hostLabel,
+                    adapterLabel = uiState.adapterLabel,
+                    environmentActions = uiState.environmentActions,
+                    foregroundHint = uiState.foregroundHint,
+                    onEnvironmentActionTap = onEnvironmentActionTap,
                 )
             }
 
@@ -70,6 +75,7 @@ fun ControlScreen(
             items(uiState.quickActions) { quickAction ->
                 QuickActionCard(
                     quickAction = quickAction,
+                    enabled = uiState.canSendQuickActions,
                     onTap = { onQuickActionTap(quickAction.id) },
                 )
             }
@@ -99,6 +105,10 @@ private fun StatusCard(
     connectionLabel: String,
     connectionDetail: String,
     hostLabel: String,
+    adapterLabel: String,
+    environmentActions: List<ControlEnvironmentAction>,
+    foregroundHint: String?,
+    onEnvironmentActionTap: (ControlEnvironmentActionId) -> Unit,
 ) {
     Card {
         Column(
@@ -107,7 +117,18 @@ private fun StatusCard(
         ) {
             Text(text = connectionLabel, style = MaterialTheme.typography.headlineSmall)
             Text(text = connectionDetail, style = MaterialTheme.typography.bodyMedium)
+            Text(text = "当前手机蓝牙名：$adapterLabel", style = MaterialTheme.typography.bodyMedium)
             Text(text = hostLabel, style = MaterialTheme.typography.labelLarge)
+            environmentActions.forEach { action ->
+                AssistChip(
+                    onClick = { onEnvironmentActionTap(action.id) },
+                    label = { Text(text = action.label) },
+                )
+                Text(text = action.detail, style = MaterialTheme.typography.bodySmall)
+            }
+            foregroundHint?.let { hint ->
+                Text(text = hint, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
@@ -115,6 +136,7 @@ private fun StatusCard(
 @Composable
 private fun QuickActionCard(
     quickAction: ControlQuickAction,
+    enabled: Boolean,
     onTap: () -> Unit,
 ) {
     Card {
@@ -125,8 +147,9 @@ private fun QuickActionCard(
             Text(text = quickAction.label, style = MaterialTheme.typography.titleLarge)
             Text(text = quickAction.detail, style = MaterialTheme.typography.bodyMedium)
             AssistChip(
+                enabled = enabled,
                 onClick = onTap,
-                label = { Text(text = "预演该动作") },
+                label = { Text(text = if (enabled) "发送该动作" else "等待 HID 连接") },
             )
         }
     }
@@ -185,8 +208,9 @@ private fun ControlScreenPreview() {
                 uiState =
                     ControlUiState(
                         connectionLabel = "未连接",
-                        connectionDetail = "等待后续接入 Bluetooth HID 注册与会话控制层。",
+                        connectionDetail = "先授予蓝牙权限并注册 HID，再让电脑搜索当前手机。",
                         hostLabel = "等待首个已配对桌面设备",
+                        adapterLabel = "Xiaomi 15",
                         quickActions =
                             listOf(
                                 ControlQuickAction("task_view", "任务视图", "面向 Windows 的窗口总览快捷操作"),
@@ -197,9 +221,20 @@ private fun ControlScreenPreview() {
                                 ControlGestureHint("单指移动", "驱动相对指针移动"),
                                 ControlGestureHint("双指滚动", "映射为标准滚轮"),
                             ),
-                        lastDispatchMessage = "骨架阶段：已解析播放 / 暂停，但还未发送真实 report。",
+                        environmentActions =
+                            listOf(
+                                ControlEnvironmentAction(
+                                    id = ControlEnvironmentActionId.RegisterHid,
+                                    label = "注册 HID 设备",
+                                    detail = "向系统注册 Touckey 的键盘/鼠标/媒体 report。",
+                                ),
+                            ),
+                        canSendQuickActions = false,
+                        foregroundHint = "配对测试时请保持 Touckey 在前台，或先启动前台服务。",
+                        lastDispatchMessage = "最小蓝牙链路接通后，这里会显示实际发送结果。",
                     ),
                 onQuickActionTap = {},
+                onEnvironmentActionTap = {},
             )
         }
     }

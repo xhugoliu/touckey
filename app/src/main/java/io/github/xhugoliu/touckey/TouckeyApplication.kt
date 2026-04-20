@@ -5,6 +5,6 @@ import io.github.xhugoliu.touckey.app.AppContainer
 
 class TouckeyApplication : Application() {
     val appContainer: AppContainer by lazy {
-        AppContainer()
+        AppContainer(applicationContext)
     }
 }

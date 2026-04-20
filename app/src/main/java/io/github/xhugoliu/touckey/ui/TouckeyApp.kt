@@ -6,23 +6,33 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.xhugoliu.touckey.app.AppContainer
+import io.github.xhugoliu.touckey.feature.control.ControlEnvironmentActionId
 import io.github.xhugoliu.touckey.feature.control.ControlScreen
 
 @Composable
 fun TouckeyApp(
     appContainer: AppContainer,
+    onEnvironmentAction: (ControlEnvironmentActionId) -> String,
 ) {
     var lastDispatchMessage by rememberSaveable { mutableStateOf<String?>(null) }
     val presenter = remember(appContainer) { appContainer.controlPresenter }
-    val uiState = remember(lastDispatchMessage, presenter) {
-        presenter.buildUiState(lastDispatchMessage)
+    val sessionSnapshot by appContainer.sessionController.snapshots.collectAsStateWithLifecycle()
+    val uiState = remember(sessionSnapshot, lastDispatchMessage, presenter) {
+        presenter.buildUiState(
+            sessionSnapshot = sessionSnapshot,
+            lastDispatchMessage = lastDispatchMessage,
+        )
     }
 
     ControlScreen(
         uiState = uiState,
         onQuickActionTap = { actionId ->
             lastDispatchMessage = presenter.dispatch(actionId).message
+        },
+        onEnvironmentActionTap = { actionId ->
+            lastDispatchMessage = onEnvironmentAction(actionId)
         },
     )
 }
