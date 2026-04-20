@@ -13,6 +13,7 @@ sealed interface HidEncodingResult {
     data class Supported(
         val summary: String,
         val packets: List<HidPacket>,
+        val nextMouseButtons: Int,
     ) : HidEncodingResult
 
     data class Unsupported(
@@ -58,19 +59,48 @@ object HidReportEncoder {
             MouseButton.Back to 0x08,
         )
 
-    fun encode(action: InputAction): HidEncodingResult =
+    fun encode(
+        action: InputAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult =
         when (action) {
-            is InputAction.KeyComboAction -> encodeKeyCombo(action)
-            is InputAction.MouseButtonClickAction -> encodeMouseClick(action)
-            is InputAction.ScrollAction -> encodeScroll(action)
-            is InputAction.ConsumerControlAction -> encodeConsumer(action)
-            InputAction.PointerMove ->
-                HidEncodingResult.Unsupported(
-                    "当前骨架还没有把手势位移转换成真实鼠标位移数据。",
-                )
+            is InputAction.PointerMoveAction -> encodePointerMove(action, currentMouseButtons)
+            is InputAction.KeyComboAction -> encodeKeyCombo(action, currentMouseButtons)
+            is InputAction.MouseButtonPressAction -> encodeMouseButtonPress(action, currentMouseButtons)
+            is InputAction.MouseButtonReleaseAction -> encodeMouseButtonRelease(action, currentMouseButtons)
+            is InputAction.MouseButtonClickAction -> encodeMouseClick(action, currentMouseButtons)
+            is InputAction.ScrollAction -> encodeScroll(action, currentMouseButtons)
+            is InputAction.ConsumerControlAction -> encodeConsumer(action, currentMouseButtons)
         }
 
-    private fun encodeKeyCombo(action: InputAction.KeyComboAction): HidEncodingResult {
+    private fun encodePointerMove(
+        action: InputAction.PointerMoveAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult {
+        val deltaX = pointerDelta(action.deltaX)
+        val deltaY = pointerDelta(action.deltaY)
+
+        if (deltaX == 0.toByte() && deltaY == 0.toByte()) {
+            return HidEncodingResult.Unsupported("本次位移太小，已忽略。")
+        }
+
+        return HidEncodingResult.Supported(
+            summary = "指针移动",
+            packets =
+                listOf(
+                    HidPacket(
+                        BluetoothHidDescriptor.MOUSE_REPORT_ID,
+                        byteArrayOf(currentMouseButtons.toByte(), deltaX, deltaY, 0),
+                    ),
+                ),
+            nextMouseButtons = currentMouseButtons,
+        )
+    }
+
+    private fun encodeKeyCombo(
+        action: InputAction.KeyComboAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult {
         val unknownKey = action.keys.firstOrNull { it !in keyUsages }
         if (unknownKey != null) {
             return HidEncodingResult.Unsupported("暂不支持键位 $unknownKey 的 HID 编码。")
@@ -100,41 +130,98 @@ object HidReportEncoder {
                     HidPacket(BluetoothHidDescriptor.KEYBOARD_REPORT_ID, report),
                     HidPacket(BluetoothHidDescriptor.KEYBOARD_REPORT_ID, ByteArray(8)),
                 ),
+            nextMouseButtons = currentMouseButtons,
         )
     }
 
-    private fun encodeMouseClick(action: InputAction.MouseButtonClickAction): HidEncodingResult {
+    private fun encodeMouseButtonPress(
+        action: InputAction.MouseButtonPressAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult {
         val buttonMask = mouseBits[action.button]
             ?: return HidEncodingResult.Unsupported("暂不支持 ${action.button} 的鼠标按键映射。")
 
-        val press = byteArrayOf(buttonMask.toByte(), 0, 0, 0)
-        val release = byteArrayOf(0, 0, 0, 0)
+        val nextButtons = currentMouseButtons or buttonMask
+
+        return HidEncodingResult.Supported(
+            summary = "${action.button.name} 按下",
+            packets =
+                listOf(
+                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(nextButtons.toByte(), 0, 0, 0)),
+                ),
+            nextMouseButtons = nextButtons,
+        )
+    }
+
+    private fun encodeMouseButtonRelease(
+        action: InputAction.MouseButtonReleaseAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult {
+        val buttonMask = mouseBits[action.button]
+            ?: return HidEncodingResult.Unsupported("暂不支持 ${action.button} 的鼠标按键映射。")
+
+        val nextButtons = currentMouseButtons and buttonMask.inv()
+
+        return HidEncodingResult.Supported(
+            summary = "${action.button.name} 释放",
+            packets =
+                listOf(
+                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(nextButtons.toByte(), 0, 0, 0)),
+                ),
+            nextMouseButtons = nextButtons,
+        )
+    }
+
+    private fun encodeMouseClick(
+        action: InputAction.MouseButtonClickAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult {
+        val buttonMask = mouseBits[action.button]
+            ?: return HidEncodingResult.Unsupported("暂不支持 ${action.button} 的鼠标按键映射。")
+
+        val pressedButtons = currentMouseButtons or buttonMask
 
         return HidEncodingResult.Supported(
             summary = "${action.button.name} 鼠标按键",
             packets =
                 listOf(
-                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, press),
-                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, release),
+                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(pressedButtons.toByte(), 0, 0, 0)),
+                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(currentMouseButtons.toByte(), 0, 0, 0)),
                 ),
+            nextMouseButtons = currentMouseButtons,
         )
     }
 
-    private fun encodeScroll(action: InputAction.ScrollAction): HidEncodingResult {
-        if (action.horizontal != 0) {
-            return HidEncodingResult.Unsupported("当前最小实现只接入了纵向滚轮，横向滚动还没打通。")
-        }
-
+    private fun encodeScroll(
+        action: InputAction.ScrollAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult {
         val wheel = action.vertical.coerceIn(-127, 127).toByte()
+        val pan = action.horizontal.coerceIn(-127, 127).toByte()
         val scrollReport = byteArrayOf(0, 0, 0, wheel)
 
         return HidEncodingResult.Supported(
-            summary = "滚轮 ${action.vertical}",
-            packets = listOf(HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, scrollReport)),
+            summary =
+                if (action.horizontal != 0) {
+                    "滚轮(v=${action.vertical}, h=${action.horizontal})"
+                } else {
+                    "滚轮 ${action.vertical}"
+                },
+            packets =
+                listOf(
+                    HidPacket(
+                        BluetoothHidDescriptor.MOUSE_REPORT_ID,
+                        byteArrayOf(currentMouseButtons.toByte(), scrollReport[1], scrollReport[2], scrollReport[3], pan),
+                    ),
+                ),
+            nextMouseButtons = currentMouseButtons,
         )
     }
 
-    private fun encodeConsumer(action: InputAction.ConsumerControlAction): HidEncodingResult {
+    private fun encodeConsumer(
+        action: InputAction.ConsumerControlAction,
+        currentMouseButtons: Int,
+    ): HidEncodingResult {
         val usage = consumerUsages[action.usage]
             ?: return HidEncodingResult.Unsupported("暂不支持 consumer control 用途 ${action.usage}。")
 
@@ -148,6 +235,7 @@ object HidReportEncoder {
                     HidPacket(BluetoothHidDescriptor.CONSUMER_REPORT_ID, press),
                     HidPacket(BluetoothHidDescriptor.CONSUMER_REPORT_ID, release),
                 ),
+            nextMouseButtons = currentMouseButtons,
         )
     }
 

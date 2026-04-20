@@ -40,17 +40,22 @@ class InMemoryConfigRepository : ConfigRepository {
             GesturePreset(
                 kind = GestureKind.SingleFingerMove,
                 summary = "单指移动指针",
-                action = InputAction.PointerMove,
+                action = InputAction.PointerMoveAction(deltaX = 0f, deltaY = 0f),
             ),
             GesturePreset(
                 kind = GestureKind.TwoFingerScroll,
-                summary = "双指滚动页面或列表",
+                summary = "双指滚动页面或列表，支持纵向和横向滚动",
                 action = InputAction.ScrollAction(vertical = -120),
             ),
             GesturePreset(
                 kind = GestureKind.DoubleTapAndHold,
                 summary = "双击并按住，进入拖拽模式",
                 action = InputAction.MouseButtonClickAction(button = MouseButton.Left),
+            ),
+            GesturePreset(
+                kind = GestureKind.TwoFingerTap,
+                summary = "双指轻点触发右键",
+                action = InputAction.MouseButtonClickAction(button = MouseButton.Right),
             ),
         )
 }

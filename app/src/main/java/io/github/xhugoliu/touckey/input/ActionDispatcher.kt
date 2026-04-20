@@ -7,4 +7,6 @@ data class DispatchResult(
 
 interface ActionDispatcher {
     fun dispatch(actionId: String): DispatchResult
+
+    fun dispatch(action: InputAction): DispatchResult
 }

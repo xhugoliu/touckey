@@ -35,7 +35,7 @@ object BluetoothHidDescriptor {
             0x15.toByte(), 0x81.toByte(),
             0x25.toByte(), 0x7F.toByte(),
             0x75.toByte(), 0x08.toByte(),
-            0x95.toByte(), 0x03.toByte(),
+            0x95.toByte(), 0x04.toByte(),
             0x81.toByte(), 0x06.toByte(),
             0xC0.toByte(),
             0xC0.toByte(),

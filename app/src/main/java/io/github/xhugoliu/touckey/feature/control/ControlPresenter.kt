@@ -3,8 +3,8 @@ package io.github.xhugoliu.touckey.feature.control
 import io.github.xhugoliu.touckey.gesture.GestureInterpreter
 import io.github.xhugoliu.touckey.input.ActionDispatcher
 import io.github.xhugoliu.touckey.input.DispatchResult
+import io.github.xhugoliu.touckey.input.InputAction
 import io.github.xhugoliu.touckey.input.MappingEngine
-import io.github.xhugoliu.touckey.session.SessionController
 import io.github.xhugoliu.touckey.session.SessionSnapshot
 
 class ControlPresenter(
@@ -51,6 +51,8 @@ class ControlPresenter(
     }
 
     fun dispatch(actionId: String): DispatchResult = actionDispatcher.dispatch(actionId)
+
+    fun dispatch(action: InputAction): DispatchResult = actionDispatcher.dispatch(action)
 
     private fun buildEnvironmentActions(sessionSnapshot: SessionSnapshot): List<ControlEnvironmentAction> {
         val actions = mutableListOf<ControlEnvironmentAction>()

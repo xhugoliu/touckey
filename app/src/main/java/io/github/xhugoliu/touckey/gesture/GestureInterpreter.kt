@@ -5,6 +5,7 @@ import io.github.xhugoliu.touckey.input.InputAction
 enum class GestureKind(val label: String) {
     SingleFingerMove("单指移动"),
     TwoFingerScroll("双指滚动"),
+    TwoFingerTap("双指点按"),
     DoubleTapAndHold("双击并按住"),
 }
 

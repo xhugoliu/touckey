@@ -10,6 +10,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.xhugoliu.touckey.app.AppContainer
 import io.github.xhugoliu.touckey.feature.control.ControlEnvironmentActionId
 import io.github.xhugoliu.touckey.feature.control.ControlScreen
+import io.github.xhugoliu.touckey.input.InputAction
 
 @Composable
 fun TouckeyApp(
@@ -30,6 +31,12 @@ fun TouckeyApp(
         uiState = uiState,
         onQuickActionTap = { actionId ->
             lastDispatchMessage = presenter.dispatch(actionId).message
+        },
+        onTouchpadAction = { action, shouldSurfaceResult ->
+            val result = presenter.dispatch(action)
+            if (!result.accepted || shouldSurfaceResult) {
+                lastDispatchMessage = result.message
+            }
         },
         onEnvironmentActionTap = { actionId ->
             lastDispatchMessage = onEnvironmentAction(actionId)

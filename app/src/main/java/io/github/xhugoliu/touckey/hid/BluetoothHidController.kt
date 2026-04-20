@@ -30,6 +30,7 @@ class BluetoothHidController(
     private val bluetoothManager =
         appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val callbackExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val sendExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mutableSnapshots = MutableStateFlow(SessionSnapshot.initial())
 
     private var hidDevice: BluetoothHidDevice? = null
@@ -40,6 +41,7 @@ class BluetoothHidController(
     private var profileRequestInFlight: Boolean = false
     private var profileUnavailable: Boolean = false
     private var lastDetailOverride: String? = null
+    private var mouseButtons: Int = 0
 
     override val snapshots: StateFlow<SessionSnapshot> = mutableSnapshots.asStateFlow()
 
@@ -160,7 +162,7 @@ class BluetoothHidController(
                 detail = "系统蓝牙 HID 服务还没准备好。",
             )
 
-        return when (val encoded = HidReportEncoder.encode(action)) {
+        return when (val encoded = HidReportEncoder.encode(action, mouseButtons)) {
             is HidEncodingResult.Unsupported ->
                 HidSendResult(
                     accepted = false,
@@ -168,25 +170,51 @@ class BluetoothHidController(
                 )
 
             is HidEncodingResult.Supported -> {
-                val success =
-                    encoded.packets.all { packet ->
-                        hid.sendReport(host, packet.reportId, packet.payload)
-                    }
-
-                if (success) {
+                if (shouldQueueOnBackgroundThread(action)) {
+                    mouseButtons = encoded.nextMouseButtons
                     HidSendResult(
                         accepted = true,
                         detail = "已发送 ${encoded.summary}。",
                     )
+                        .also {
+                            sendExecutor.execute {
+                                encoded.packets.forEach { packet ->
+                                    hid.sendReport(host, packet.reportId, packet.payload)
+                                }
+                            }
+                        }
                 } else {
-                    HidSendResult(
-                        accepted = false,
-                        detail = "系统没有接受 ${encoded.summary} 的 HID report。",
-                    )
+                    val success =
+                        encoded.packets.all { packet ->
+                            hid.sendReport(host, packet.reportId, packet.payload)
+                        }
+
+                    if (success) {
+                        mouseButtons = encoded.nextMouseButtons
+                        HidSendResult(
+                            accepted = true,
+                            detail = "已发送 ${encoded.summary}。",
+                        )
+                    } else {
+                        HidSendResult(
+                            accepted = false,
+                            detail = "系统没有接受 ${encoded.summary} 的 HID report。",
+                        )
+                    }
                 }
             }
         }
     }
+
+    private fun shouldQueueOnBackgroundThread(action: InputAction): Boolean =
+        when (action) {
+            is InputAction.PointerMoveAction -> true
+            is InputAction.ScrollAction -> true
+            is InputAction.MouseButtonPressAction -> true
+            is InputAction.MouseButtonReleaseAction -> true
+            is InputAction.MouseButtonClickAction -> true
+            else -> false
+        }
 
     private val serviceListener =
         object : BluetoothProfile.ServiceListener {
@@ -239,6 +267,7 @@ class BluetoothHidController(
                 appRegistered = registered
                 if (!registered) {
                     connectedHost = null
+                    mouseButtons = 0
                 }
 
                 lastDetailOverride =
@@ -264,6 +293,9 @@ class BluetoothHidController(
                         BluetoothProfile.STATE_CONNECTED -> device
                         else -> null
                     }
+                if (state != BluetoothProfile.STATE_CONNECTED) {
+                    mouseButtons = 0
+                }
 
                 lastDetailOverride =
                     when (state) {
