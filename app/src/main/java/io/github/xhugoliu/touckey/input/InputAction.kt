@@ -18,6 +18,14 @@ sealed interface InputAction {
         val modifiers: List<String> = emptyList(),
     ) : InputAction
 
+    data class KeyPressAction(
+        val key: String,
+    ) : InputAction
+
+    data class KeyReleaseAction(
+        val key: String,
+    ) : InputAction
+
     data class MouseButtonPressAction(
         val button: MouseButton,
     ) : InputAction
@@ -50,6 +58,8 @@ fun InputAction.summary(): String =
             }
             append(keys.joinToString("+"))
         }
+        is InputAction.KeyPressAction -> "${key} 按下"
+        is InputAction.KeyReleaseAction -> "${key} 释放"
         is InputAction.MouseButtonPressAction -> "${button.name} 按下"
         is InputAction.MouseButtonReleaseAction -> "${button.name} 释放"
         is InputAction.MouseButtonClickAction -> "${button.name} 点击"

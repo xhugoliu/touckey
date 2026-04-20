@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -57,11 +58,28 @@ fun ControlScreen(
     onInputAction: (InputAction, Boolean) -> Unit,
     onEnvironmentActionTap: (ControlEnvironmentActionId) -> Unit,
     onExitTap: () -> Unit,
+    onSettingsVisibilityChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var currentRoute by rememberSaveable { mutableStateOf(ControlRoute.Console) }
     var currentPage by rememberSaveable { mutableStateOf(ControlPage.Touchpad) }
+    var modifierMode by rememberSaveable { mutableStateOf(ModifierMode.Preset) }
     var armedModifiers by remember { mutableStateOf<List<String>>(emptyList()) }
+    var activeHoldKeys by remember { mutableStateOf<List<String>>(emptyList()) }
     val colorScheme = MaterialTheme.colorScheme
+
+    LaunchedEffect(currentRoute, onSettingsVisibilityChanged) {
+        onSettingsVisibilityChanged(currentRoute == ControlRoute.Settings)
+    }
+
+    fun releaseHeldKeys() {
+        if (modifierMode == ModifierMode.Hold && activeHoldKeys.isNotEmpty()) {
+            activeHoldKeys.forEach { key ->
+                onInputAction(InputAction.KeyReleaseAction(key), false)
+            }
+            activeHoldKeys = emptyList()
+        }
+    }
 
     Box(
         modifier =
@@ -81,78 +99,117 @@ fun ControlScreen(
     ) {
         ConsoleAtmosphere()
 
-        when (currentPage) {
-            ControlPage.Keyboard ->
-                KeyboardPage(
-                    enabled = uiState.isInputEnabled,
-                    armedModifiers = armedModifiers,
-                    onModifierToggle = { modifierName ->
-                        if (uiState.isInputEnabled) {
-                            armedModifiers =
-                                if (armedModifiers.contains(modifierName)) {
-                                    armedModifiers - modifierName
-                                } else {
-                                    armedModifiers + modifierName
+        when (currentRoute) {
+            ControlRoute.Console -> {
+                when (currentPage) {
+                    ControlPage.Keyboard ->
+                        KeyboardPage(
+                            enabled = uiState.isInputEnabled,
+                            modifierMode = modifierMode,
+                            activePresetModifiers = armedModifiers,
+                            activeHoldKeys = activeHoldKeys,
+                            onPresetModifierToggle = { modifierName ->
+                                if (uiState.isInputEnabled) {
+                                    armedModifiers = toggleArmedModifier(armedModifiers, modifierName)
                                 }
-                        }
+                            },
+                            onHoldKeyPress = { keyName ->
+                                if (uiState.isInputEnabled && keyName !in activeHoldKeys) {
+                                    activeHoldKeys = activeHoldKeys + keyName
+                                    onInputAction(InputAction.KeyPressAction(keyName), false)
+                                }
+                            },
+                            onHoldKeyRelease = { keyName ->
+                                if (keyName in activeHoldKeys) {
+                                    activeHoldKeys = activeHoldKeys - keyName
+                                    onInputAction(InputAction.KeyReleaseAction(keyName), false)
+                                }
+                            },
+                            onKeyTap = { key ->
+                                if (uiState.isInputEnabled) {
+                                    onInputAction(
+                                        InputAction.KeyComboAction(
+                                            keys = listOf(key.keyName),
+                                            modifiers = armedModifiers,
+                                        ),
+                                        false,
+                                    )
+                                    armedModifiers = modifiersAfterKeyTap(modifierMode, armedModifiers)
+                                }
+                            },
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 24.dp, vertical = 20.dp)
+                                    .systemBarsPadding(),
+                        )
+
+                    ControlPage.Touchpad ->
+                        TouchpadPage(
+                            enabled = uiState.isInputEnabled,
+                            onTouchpadAction = onInputAction,
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 24.dp, vertical = 20.dp)
+                                    .systemBarsPadding(),
+                        )
+                }
+
+                CornerChrome(
+                    currentPage = currentPage,
+                    connection = uiState.connection,
+                    onPageSelected = { page ->
+                        currentPage = page
+                        releaseHeldKeys()
+                        armedModifiers = emptyList()
                     },
-                    onKeyTap = { key ->
-                        if (uiState.isInputEnabled) {
-                            onInputAction(
-                                InputAction.KeyComboAction(
-                                    keys = listOf(key.keyName),
-                                    modifiers = armedModifiers,
-                                ),
-                                false,
-                            )
-                            armedModifiers = emptyList()
-                        }
+                    onSettingsTap = {
+                        releaseHeldKeys()
+                        armedModifiers = emptyList()
+                        currentRoute = ControlRoute.Settings
+                    },
+                    onExitTap = {
+                        releaseHeldKeys()
+                        armedModifiers = emptyList()
+                        onExitTap()
                     },
                     modifier =
                         Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 24.dp, vertical = 20.dp)
-                            .systemBarsPadding(),
+                            .fillMaxWidth()
+                            .systemBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .align(Alignment.TopCenter),
                 )
 
-            ControlPage.Touchpad ->
-                TouchpadPage(
-                    enabled = uiState.isInputEnabled,
-                    onTouchpadAction = onInputAction,
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 24.dp, vertical = 20.dp)
-                            .systemBarsPadding(),
+                uiState.setupPrompt?.let { prompt ->
+                    SetupPrompt(
+                        prompt = prompt,
+                        onActionTap = onEnvironmentActionTap,
+                        modifier =
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(horizontal = 20.dp, vertical = 20.dp)
+                                .systemBarsPadding(),
+                    )
+                }
+            }
+
+            ControlRoute.Settings ->
+                SettingsScreen(
+                    modifierMode = modifierMode,
+                    onModifierModeSelected = { mode ->
+                        releaseHeldKeys()
+                        armedModifiers = emptyList()
+                        modifierMode = mode
+                    },
+                    onBackTap = {
+                        releaseHeldKeys()
+                        armedModifiers = emptyList()
+                        currentRoute = ControlRoute.Console
+                    },
+                    modifier = Modifier.fillMaxSize(),
                 )
-        }
-
-        CornerChrome(
-            currentPage = currentPage,
-            connection = uiState.connection,
-            onPageSelected = { page ->
-                currentPage = page
-                armedModifiers = emptyList()
-            },
-            onExitTap = onExitTap,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .systemBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .align(Alignment.TopCenter),
-        )
-
-        uiState.setupPrompt?.let { prompt ->
-            SetupPrompt(
-                prompt = prompt,
-                onActionTap = onEnvironmentActionTap,
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(horizontal = 20.dp, vertical = 20.dp)
-                        .systemBarsPadding(),
-            )
         }
 
         Box(
@@ -210,6 +267,7 @@ private fun CornerChrome(
     currentPage: ControlPage,
     connection: ControlConnectionUiState,
     onPageSelected: (ControlPage) -> Unit,
+    onSettingsTap: () -> Unit,
     onExitTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -227,6 +285,11 @@ private fun CornerChrome(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                CornerButton(
+                    label = "Settings",
+                    emphasized = false,
+                    onTap = onSettingsTap,
+                )
                 CornerButton(
                     label = "Minimize",
                     emphasized = false,
@@ -341,8 +404,12 @@ private fun ConnectionBadge(
 @Composable
 private fun KeyboardPage(
     enabled: Boolean,
-    armedModifiers: List<String>,
-    onModifierToggle: (String) -> Unit,
+    modifierMode: ModifierMode,
+    activePresetModifiers: List<String>,
+    activeHoldKeys: List<String>,
+    onPresetModifierToggle: (String) -> Unit,
+    onHoldKeyPress: (String) -> Unit,
+    onHoldKeyRelease: (String) -> Unit,
     onKeyTap: (KeyboardKeySpec) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -362,15 +429,6 @@ private fun KeyboardPage(
                     .fillMaxSize()
                     .padding(12.dp),
         ) {
-            if (armedModifiers.isNotEmpty()) {
-                Text(
-                    text = "Armed: ${armedModifiers.joinToString(" + ")}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
-                )
-            }
-
             keyboardRows.forEach { row ->
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -383,8 +441,12 @@ private fun KeyboardPage(
                         KeyboardKey(
                             spec = key,
                             enabled = enabled,
-                            armedModifiers = armedModifiers,
-                            onModifierToggle = onModifierToggle,
+                            modifierMode = modifierMode,
+                            activePresetModifiers = activePresetModifiers,
+                            activeHoldKeys = activeHoldKeys,
+                            onPresetModifierToggle = onPresetModifierToggle,
+                            onHoldKeyPress = onHoldKeyPress,
+                            onHoldKeyRelease = onHoldKeyRelease,
                             onKeyTap = onKeyTap,
                         )
                     }
@@ -398,19 +460,29 @@ private fun KeyboardPage(
 private fun RowScope.KeyboardKey(
     spec: KeyboardKeySpec,
     enabled: Boolean,
-    armedModifiers: List<String>,
-    onModifierToggle: (String) -> Unit,
+    modifierMode: ModifierMode,
+    activePresetModifiers: List<String>,
+    activeHoldKeys: List<String>,
+    onPresetModifierToggle: (String) -> Unit,
+    onHoldKeyPress: (String) -> Unit,
+    onHoldKeyRelease: (String) -> Unit,
     onKeyTap: (KeyboardKeySpec) -> Unit,
 ) {
+    var holdPointerActive by remember(spec.keyName, modifierMode) { mutableStateOf(false) }
     val colorScheme = MaterialTheme.colorScheme
-    val isModifierArmed = spec.kind == KeyboardKeyKind.Modifier && armedModifiers.contains(spec.keyName)
-    val activeShift = armedModifiers.contains("Shift")
+    val isHoldPressed = modifierMode == ModifierMode.Hold && activeHoldKeys.contains(spec.keyName)
+    val isModifierArmed = modifierMode == ModifierMode.Preset && spec.kind == KeyboardKeyKind.Modifier && activePresetModifiers.contains(spec.keyName)
+    val activeShift =
+        when (modifierMode) {
+            ModifierMode.Preset -> activePresetModifiers.contains("Shift")
+            ModifierMode.Hold -> activeHoldKeys.contains("Shift")
+        }
     val shape = RoundedCornerShape(18.dp)
 
     val backgroundColor =
         when {
             !enabled -> colorScheme.surfaceVariant
-            isModifierArmed -> colorScheme.primary
+            isHoldPressed || isModifierArmed -> colorScheme.primary
             spec.kind == KeyboardKeyKind.Function -> colorScheme.surfaceVariant
             spec.kind == KeyboardKeyKind.Navigation -> colorScheme.background
             spec.kind == KeyboardKeyKind.System -> colorScheme.surfaceVariant
@@ -418,12 +490,12 @@ private fun RowScope.KeyboardKey(
         }
     val borderColor =
         when {
-            isModifierArmed -> colorScheme.primary
+            isHoldPressed || isModifierArmed -> colorScheme.primary
             enabled -> colorScheme.outline
             else -> colorScheme.outline.copy(alpha = 0.6f)
         }
     val textColor =
-        if (enabled && isModifierArmed) {
+        if (enabled && (isHoldPressed || isModifierArmed)) {
             colorScheme.onPrimary
         } else {
             colorScheme.onSurface.copy(alpha = if (enabled) 0.94f else 0.35f)
@@ -438,16 +510,48 @@ private fun RowScope.KeyboardKey(
                 .clip(shape)
                 .background(backgroundColor)
                 .border(width = 1.dp, color = borderColor, shape = shape)
-                .clickable(
-                    enabled = enabled,
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) {
-                    when (spec.kind) {
-                        KeyboardKeyKind.Modifier -> onModifierToggle(spec.keyName)
-                        else -> onKeyTap(spec)
+                .then(
+                    if (modifierMode == ModifierMode.Hold) {
+                        Modifier.pointerInteropFilter { event ->
+                            if (!enabled) {
+                                false
+                            } else {
+                                when (event.actionMasked) {
+                                    MotionEvent.ACTION_DOWN -> {
+                                        if (!holdPointerActive) {
+                                            holdPointerActive = true
+                                            onHoldKeyPress(spec.keyName)
+                                        }
+                                        true
+                                    }
+
+                                    MotionEvent.ACTION_UP,
+                                    MotionEvent.ACTION_CANCEL,
+                                    -> {
+                                        if (holdPointerActive) {
+                                            holdPointerActive = false
+                                            onHoldKeyRelease(spec.keyName)
+                                        }
+                                        true
+                                    }
+
+                                    else -> holdPointerActive
+                                }
+                            }
+                        }
+                    } else {
+                        Modifier.clickable(
+                            enabled = enabled,
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            when (spec.kind) {
+                                KeyboardKeyKind.Modifier -> onPresetModifierToggle(spec.keyName)
+                                else -> onKeyTap(spec)
+                            }
+                        }
                     }
-                }
+                )
                 .padding(horizontal = 4.dp, vertical = 2.dp),
     ) {
         Text(
@@ -759,6 +863,11 @@ private fun averageY(event: MotionEvent): Float {
     return total / samples
 }
 
+private enum class ControlRoute {
+    Console,
+    Settings,
+}
+
 private enum class ControlPage(val label: String) {
     Keyboard("Keyboard"),
     Touchpad("Touchpad"),
@@ -902,6 +1011,7 @@ private fun ControlScreenPreview() {
             onInputAction = { _, _ -> },
             onEnvironmentActionTap = {},
             onExitTap = {},
+            onSettingsVisibilityChanged = {},
         )
     }
 }

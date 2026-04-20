@@ -13,9 +13,13 @@ class HidReportEncoderTest {
             HidReportEncoder.encode(
                 InputAction.PointerMoveAction(deltaX = 12f, deltaY = -7f),
                 currentMouseButtons = 1,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
             ) as HidEncodingResult.Supported
 
         assertEquals(1, result.nextMouseButtons)
+        assertEquals(0, result.nextKeyboardModifiers)
+        assertEquals(emptyList<Int>(), result.nextKeyboardKeys)
         assertEquals(1, result.packets.single().payload[0].toInt())
         assertEquals(12, result.packets.single().payload[1].toInt())
         assertEquals(-7, result.packets.single().payload[2].toInt())
@@ -27,6 +31,8 @@ class HidReportEncoderTest {
             HidReportEncoder.encode(
                 InputAction.MouseButtonPressAction(MouseButton.Left),
                 currentMouseButtons = 0,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
             ) as HidEncodingResult.Supported
 
         assertEquals(1, press.nextMouseButtons)
@@ -36,6 +42,8 @@ class HidReportEncoderTest {
             HidReportEncoder.encode(
                 InputAction.MouseButtonReleaseAction(MouseButton.Left),
                 currentMouseButtons = press.nextMouseButtons,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
             ) as HidEncodingResult.Supported
 
         assertEquals(0, release.nextMouseButtons)
@@ -48,6 +56,8 @@ class HidReportEncoderTest {
             HidReportEncoder.encode(
                 InputAction.ScrollAction(vertical = -12, horizontal = 10),
                 currentMouseButtons = 0,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
             )
 
         assertTrue(result is HidEncodingResult.Supported)
@@ -65,12 +75,15 @@ class HidReportEncoderTest {
                     modifiers = listOf("Shift", "Cmd"),
                 ),
                 currentMouseButtons = 0,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
             ) as HidEncodingResult.Supported
 
         assertEquals(0x0A, result.packets.first().payload[0].toInt())
         assertEquals(0x04, result.packets.first().payload[2].toInt())
         assertEquals(0x4C, result.packets.first().payload[3].toInt())
         assertEquals(0, result.packets.last().payload[0].toInt())
+        assertEquals(emptyList<Int>(), result.nextKeyboardKeys)
     }
 
     @Test
@@ -82,11 +95,62 @@ class HidReportEncoderTest {
                     modifiers = listOf("Option"),
                 ),
                 currentMouseButtons = 0,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
             ) as HidEncodingResult.Supported
 
         assertEquals(0x04, result.packets.first().payload[0].toInt())
         assertEquals(0x45, result.packets.first().payload[2].toInt())
         assertEquals(0x4E, result.packets.first().payload[3].toInt())
         assertEquals(0x4A, result.packets.first().payload[4].toInt())
+    }
+
+    @Test
+    fun `key press and release keep keyboard state like a real keyboard`() {
+        val pressModifier =
+            HidReportEncoder.encode(
+                InputAction.KeyPressAction("Shift"),
+                currentMouseButtons = 0,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0x02, pressModifier.nextKeyboardModifiers)
+        assertEquals(0x02, pressModifier.packets.single().payload[0].toInt())
+
+        val pressKey =
+            HidReportEncoder.encode(
+                InputAction.KeyPressAction("A"),
+                currentMouseButtons = 0,
+                currentKeyboardModifiers = pressModifier.nextKeyboardModifiers,
+                currentKeyboardKeys = pressModifier.nextKeyboardKeys,
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0x02, pressKey.packets.single().payload[0].toInt())
+        assertEquals(0x04, pressKey.packets.single().payload[2].toInt())
+        assertEquals(listOf(0x04), pressKey.nextKeyboardKeys)
+
+        val releaseKey =
+            HidReportEncoder.encode(
+                InputAction.KeyReleaseAction("A"),
+                currentMouseButtons = 0,
+                currentKeyboardModifiers = pressKey.nextKeyboardModifiers,
+                currentKeyboardKeys = pressKey.nextKeyboardKeys,
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0x02, releaseKey.packets.single().payload[0].toInt())
+        assertEquals(0, releaseKey.packets.single().payload[2].toInt())
+        assertEquals(emptyList<Int>(), releaseKey.nextKeyboardKeys)
+
+        val releaseModifier =
+            HidReportEncoder.encode(
+                InputAction.KeyReleaseAction("Shift"),
+                currentMouseButtons = 0,
+                currentKeyboardModifiers = releaseKey.nextKeyboardModifiers,
+                currentKeyboardKeys = releaseKey.nextKeyboardKeys,
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0, releaseModifier.packets.single().payload[0].toInt())
+        assertEquals(0, releaseModifier.nextKeyboardModifiers)
     }
 }

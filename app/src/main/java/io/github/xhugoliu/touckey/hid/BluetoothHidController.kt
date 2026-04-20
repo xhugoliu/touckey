@@ -42,6 +42,8 @@ class BluetoothHidController(
     private var profileUnavailable: Boolean = false
     private var lastDetailOverride: String? = null
     private var mouseButtons: Int = 0
+    private var keyboardModifiers: Int = 0
+    private var keyboardKeys: List<Int> = emptyList()
 
     override val snapshots: StateFlow<SessionSnapshot> = mutableSnapshots.asStateFlow()
 
@@ -162,7 +164,7 @@ class BluetoothHidController(
                 detail = "系统蓝牙 HID 服务还没准备好。",
             )
 
-        return when (val encoded = HidReportEncoder.encode(action, mouseButtons)) {
+        return when (val encoded = HidReportEncoder.encode(action, mouseButtons, keyboardModifiers, keyboardKeys)) {
             is HidEncodingResult.Unsupported ->
                 HidSendResult(
                     accepted = false,
@@ -172,6 +174,8 @@ class BluetoothHidController(
             is HidEncodingResult.Supported -> {
                 if (shouldQueueOnBackgroundThread(action)) {
                     mouseButtons = encoded.nextMouseButtons
+                    keyboardModifiers = encoded.nextKeyboardModifiers
+                    keyboardKeys = encoded.nextKeyboardKeys
                     HidSendResult(
                         accepted = true,
                         detail = "已发送 ${encoded.summary}。",
@@ -191,6 +195,8 @@ class BluetoothHidController(
 
                     if (success) {
                         mouseButtons = encoded.nextMouseButtons
+                        keyboardModifiers = encoded.nextKeyboardModifiers
+                        keyboardKeys = encoded.nextKeyboardKeys
                         HidSendResult(
                             accepted = true,
                             detail = "已发送 ${encoded.summary}。",
@@ -253,6 +259,9 @@ class BluetoothHidController(
                 profileRequestInFlight = false
                 appRegistered = false
                 connectedHost = null
+                mouseButtons = 0
+                keyboardModifiers = 0
+                keyboardKeys = emptyList()
                 lastDetailOverride = "系统蓝牙 HID 服务已断开。"
                 updateSnapshot(lastDetailOverride)
             }
@@ -268,6 +277,8 @@ class BluetoothHidController(
                 if (!registered) {
                     connectedHost = null
                     mouseButtons = 0
+                    keyboardModifiers = 0
+                    keyboardKeys = emptyList()
                 }
 
                 lastDetailOverride =
@@ -295,6 +306,8 @@ class BluetoothHidController(
                     }
                 if (state != BluetoothProfile.STATE_CONNECTED) {
                     mouseButtons = 0
+                    keyboardModifiers = 0
+                    keyboardKeys = emptyList()
                 }
 
                 lastDetailOverride =

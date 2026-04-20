@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
                     appContainer = appContainer,
                     onEnvironmentAction = ::handleEnvironmentAction,
                     onExit = ::minimizeControlConsole,
+                    onSettingsVisibilityChanged = ::updateScreenOrientation,
                 )
             }
         }
@@ -135,6 +136,15 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
+    }
+
+    private fun updateScreenOrientation(settingsVisible: Boolean) {
+        requestedOrientation =
+            if (settingsVisible) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
     }
 
     private fun minimizeControlConsole() {
