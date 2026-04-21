@@ -16,7 +16,6 @@ import kotlinx.coroutines.launch
 fun TouckeyApp(
     appContainer: AppContainer,
     onEnvironmentAction: (ControlEnvironmentActionId) -> String,
-    onExit: () -> Unit,
 ) {
     val presenter = remember(appContainer) { appContainer.controlPresenter }
     val sessionSnapshot by appContainer.sessionController.snapshots.collectAsStateWithLifecycle()
@@ -40,6 +39,5 @@ fun TouckeyApp(
                 snackbarHostState.showSnackbar(onEnvironmentAction(actionId))
             }
         },
-        onExitTap = onExit,
     )
 }

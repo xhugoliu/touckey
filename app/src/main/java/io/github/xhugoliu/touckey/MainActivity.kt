@@ -3,8 +3,10 @@ package io.github.xhugoliu.touckey
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -38,14 +40,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        configureImmersiveMode()
+        configureWindowMode()
 
         setContent {
             TouckeyTheme {
                 TouckeyApp(
                     appContainer = appContainer,
                     onEnvironmentAction = ::handleEnvironmentAction,
-                    onExit = ::minimizeControlConsole,
                 )
             }
         }
@@ -53,14 +54,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        configureImmersiveMode()
+        configureWindowMode()
         refreshAndEnsureRegistered()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
-            configureImmersiveMode()
+            configureWindowMode()
         }
     }
 
@@ -127,17 +128,34 @@ class MainActivity : ComponentActivity() {
         appContainer.sessionController.ensureRegistered()
     }
 
-    private fun configureImmersiveMode() {
+    private fun configureWindowMode() {
+        configureDisplayCutoutMode()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView)?.apply {
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            hide(WindowInsetsCompat.Type.systemBars())
+            if (isPortraitOrientation()) {
+                show(WindowInsetsCompat.Type.systemBars())
+            } else {
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsetsCompat.Type.systemBars())
+            }
         }
     }
 
-    private fun minimizeControlConsole() {
-        if (!moveTaskToBack(true)) {
-            finish()
+    private fun configureDisplayCutoutMode() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return
         }
+
+        val params = window.attributes
+        params.layoutInDisplayCutoutMode =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        window.attributes = params
     }
+
+    private fun isPortraitOrientation(): Boolean =
+        resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 }
