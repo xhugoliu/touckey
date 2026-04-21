@@ -515,7 +515,7 @@ private fun RowScope.KeyboardKey(
     onHoldKeyRelease: (String) -> Unit,
     onKeyTap: (KeyboardKeySpec) -> Unit,
 ) {
-    var holdPointerActive by remember(spec.keyName, modifierMode) { mutableStateOf(false) }
+    var activeHoldPointerId by remember(spec.keyName, modifierMode) { mutableStateOf<Int?>(null) }
     val colorScheme = MaterialTheme.colorScheme
     val isHoldPressed = modifierMode == ModifierMode.Hold && activeHoldKeys.contains(spec.keyName)
     val isModifierArmed = modifierMode == ModifierMode.Preset && spec.kind == KeyboardKeyKind.Modifier && activePresetModifiers.contains(spec.keyName)
@@ -563,27 +563,27 @@ private fun RowScope.KeyboardKey(
                             if (!enabled) {
                                 false
                             } else {
-                                when (event.actionMasked) {
-                                    MotionEvent.ACTION_DOWN -> {
-                                        if (!holdPointerActive) {
-                                            holdPointerActive = true
-                                            onHoldKeyPress(spec.keyName)
-                                        }
-                                        true
+                                val actionPointerId =
+                                    if (event.pointerCount > 0 && event.actionIndex in 0 until event.pointerCount) {
+                                        event.getPointerId(event.actionIndex)
+                                    } else {
+                                        -1
                                     }
+                                val transition =
+                                    reduceHoldPointerEvent(
+                                        activePointerId = activeHoldPointerId,
+                                        actionMasked = event.actionMasked,
+                                        actionPointerId = actionPointerId,
+                                    )
 
-                                    MotionEvent.ACTION_UP,
-                                    MotionEvent.ACTION_CANCEL,
-                                    -> {
-                                        if (holdPointerActive) {
-                                            holdPointerActive = false
-                                            onHoldKeyRelease(spec.keyName)
-                                        }
-                                        true
-                                    }
-
-                                    else -> holdPointerActive
+                                if (transition.shouldPress) {
+                                    onHoldKeyPress(spec.keyName)
                                 }
+                                if (transition.shouldRelease) {
+                                    onHoldKeyRelease(spec.keyName)
+                                }
+                                activeHoldPointerId = transition.nextPointerId
+                                activeHoldPointerId != null || transition.shouldRelease
                             }
                         }
                     } else {
