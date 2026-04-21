@@ -10,7 +10,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.xhugoliu.touckey.app.AppContainer
 import io.github.xhugoliu.touckey.feature.control.ControlEnvironmentActionId
 import io.github.xhugoliu.touckey.feature.control.ControlScreen
-import io.github.xhugoliu.touckey.input.InputAction
 import kotlinx.coroutines.launch
 
 @Composable
@@ -18,7 +17,6 @@ fun TouckeyApp(
     appContainer: AppContainer,
     onEnvironmentAction: (ControlEnvironmentActionId) -> String,
     onExit: () -> Unit,
-    onSettingsVisibilityChanged: (Boolean) -> Unit,
 ) {
     val presenter = remember(appContainer) { appContainer.controlPresenter }
     val sessionSnapshot by appContainer.sessionController.snapshots.collectAsStateWithLifecycle()
@@ -43,6 +41,5 @@ fun TouckeyApp(
             }
         },
         onExitTap = onExit,
-        onSettingsVisibilityChanged = onSettingsVisibilityChanged,
     )
 }

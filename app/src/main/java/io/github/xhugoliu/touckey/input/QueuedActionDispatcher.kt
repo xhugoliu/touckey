@@ -5,20 +5,9 @@ import io.github.xhugoliu.touckey.hid.HidGateway
 import io.github.xhugoliu.touckey.session.SessionController
 
 class QueuedActionDispatcher(
-    private val mappingEngine: MappingEngine,
     private val hidGateway: HidGateway,
     private val sessionController: SessionController,
 ) : ActionDispatcher {
-    override fun dispatch(actionId: String): DispatchResult {
-        val action = mappingEngine.resolve(actionId)
-            ?: return DispatchResult(
-                accepted = false,
-                message = "未找到动作 $actionId，对应的映射还没定义。",
-            )
-
-        return dispatch(action)
-    }
-
     override fun dispatch(action: InputAction): DispatchResult {
         if (sessionController.snapshot().status != ConnectionStatus.Connected) {
             return DispatchResult(

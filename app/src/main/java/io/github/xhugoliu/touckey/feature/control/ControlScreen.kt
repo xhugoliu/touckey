@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -21,10 +22,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -58,7 +59,6 @@ fun ControlScreen(
     onInputAction: (InputAction, Boolean) -> Unit,
     onEnvironmentActionTap: (ControlEnvironmentActionId) -> Unit,
     onExitTap: () -> Unit,
-    onSettingsVisibilityChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var currentRoute by rememberSaveable { mutableStateOf(ControlRoute.Console) }
@@ -67,10 +67,6 @@ fun ControlScreen(
     var armedModifiers by remember { mutableStateOf<List<String>>(emptyList()) }
     var activeHoldKeys by remember { mutableStateOf<List<String>>(emptyList()) }
     val colorScheme = MaterialTheme.colorScheme
-
-    LaunchedEffect(currentRoute, onSettingsVisibilityChanged) {
-        onSettingsVisibilityChanged(currentRoute == ControlRoute.Settings)
-    }
 
     fun releaseHeldKeys() {
         if (modifierMode == ModifierMode.Hold && activeHoldKeys.isNotEmpty()) {
@@ -81,7 +77,7 @@ fun ControlScreen(
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier =
             modifier
                 .fillMaxSize()
@@ -97,129 +93,136 @@ fun ControlScreen(
                         ),
                 ),
     ) {
+        val isCompactLayout = maxWidth < 720.dp
+        val contentHorizontalPadding = if (isCompactLayout) 12.dp else 24.dp
+        val contentVerticalPadding = if (isCompactLayout) 12.dp else 20.dp
+
         ConsoleAtmosphere()
-
-        when (currentRoute) {
-            ControlRoute.Console -> {
-                when (currentPage) {
-                    ControlPage.Keyboard ->
-                        KeyboardPage(
-                            enabled = uiState.isInputEnabled,
-                            modifierMode = modifierMode,
-                            activePresetModifiers = armedModifiers,
-                            activeHoldKeys = activeHoldKeys,
-                            onPresetModifierToggle = { modifierName ->
-                                if (uiState.isInputEnabled) {
-                                    armedModifiers = toggleArmedModifier(armedModifiers, modifierName)
-                                }
-                            },
-                            onHoldKeyPress = { keyName ->
-                                if (uiState.isInputEnabled && keyName !in activeHoldKeys) {
-                                    activeHoldKeys = activeHoldKeys + keyName
-                                    onInputAction(InputAction.KeyPressAction(keyName), false)
-                                }
-                            },
-                            onHoldKeyRelease = { keyName ->
-                                if (keyName in activeHoldKeys) {
-                                    activeHoldKeys = activeHoldKeys - keyName
-                                    onInputAction(InputAction.KeyReleaseAction(keyName), false)
-                                }
-                            },
-                            onKeyTap = { key ->
-                                if (uiState.isInputEnabled) {
-                                    onInputAction(
-                                        InputAction.KeyComboAction(
-                                            keys = listOf(key.keyName),
-                                            modifiers = armedModifiers,
-                                        ),
-                                        false,
-                                    )
-                                    armedModifiers = modifiersAfterKeyTap(modifierMode, armedModifiers)
-                                }
-                            },
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 24.dp, vertical = 20.dp)
-                                    .systemBarsPadding(),
-                        )
-
-                    ControlPage.Touchpad ->
-                        TouchpadPage(
-                            enabled = uiState.isInputEnabled,
-                            onTouchpadAction = onInputAction,
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 24.dp, vertical = 20.dp)
-                                    .systemBarsPadding(),
-                        )
-                }
-
-                CornerChrome(
-                    currentPage = currentPage,
-                    connection = uiState.connection,
-                    onPageSelected = { page ->
-                        currentPage = page
-                        releaseHeldKeys()
-                        armedModifiers = emptyList()
-                    },
-                    onSettingsTap = {
-                        releaseHeldKeys()
-                        armedModifiers = emptyList()
-                        currentRoute = ControlRoute.Settings
-                    },
-                    onExitTap = {
-                        releaseHeldKeys()
-                        armedModifiers = emptyList()
-                        onExitTap()
-                    },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .systemBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                            .align(Alignment.TopCenter),
-                )
-
-                uiState.setupPrompt?.let { prompt ->
-                    SetupPrompt(
-                        prompt = prompt,
-                        onActionTap = onEnvironmentActionTap,
+        Scaffold(
+            containerColor = Color.Transparent,
+            snackbarHost = snackbarHost,
+            topBar = {
+                if (currentRoute == ControlRoute.Console) {
+                    CornerChrome(
+                        currentPage = currentPage,
+                        connection = uiState.connection,
+                        compact = isCompactLayout,
+                        onPageSelected = { page ->
+                            currentPage = page
+                            releaseHeldKeys()
+                            armedModifiers = emptyList()
+                        },
+                        onSettingsTap = {
+                            releaseHeldKeys()
+                            armedModifiers = emptyList()
+                            currentRoute = ControlRoute.Settings
+                        },
+                        onExitTap = {
+                            releaseHeldKeys()
+                            armedModifiers = emptyList()
+                            onExitTap()
+                        },
                         modifier =
                             Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(horizontal = 20.dp, vertical = 20.dp)
-                                .systemBarsPadding(),
+                                .fillMaxWidth()
+                                .systemBarsPadding()
+                                .padding(horizontal = if (isCompactLayout) 12.dp else 16.dp, vertical = 12.dp),
                     )
                 }
+            },
+            bottomBar = {
+                if (currentRoute == ControlRoute.Console) {
+                    uiState.setupPrompt?.let { prompt ->
+                        SetupPrompt(
+                            prompt = prompt,
+                            onActionTap = onEnvironmentActionTap,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = if (isCompactLayout) 12.dp else 20.dp, vertical = 12.dp)
+                                    .systemBarsPadding(),
+                        )
+                    }
+                }
+            },
+        ) { innerPadding ->
+            when (currentRoute) {
+                ControlRoute.Console -> {
+                    when (currentPage) {
+                        ControlPage.Keyboard ->
+                            KeyboardPage(
+                                enabled = uiState.isInputEnabled,
+                                modifierMode = modifierMode,
+                                activePresetModifiers = armedModifiers,
+                                activeHoldKeys = activeHoldKeys,
+                                onPresetModifierToggle = { modifierName ->
+                                    if (uiState.isInputEnabled) {
+                                        armedModifiers = toggleArmedModifier(armedModifiers, modifierName)
+                                    }
+                                },
+                                onHoldKeyPress = { keyName ->
+                                    if (uiState.isInputEnabled && keyName !in activeHoldKeys) {
+                                        activeHoldKeys = activeHoldKeys + keyName
+                                        onInputAction(InputAction.KeyPressAction(keyName), false)
+                                    }
+                                },
+                                onHoldKeyRelease = { keyName ->
+                                    if (keyName in activeHoldKeys) {
+                                        activeHoldKeys = activeHoldKeys - keyName
+                                        onInputAction(InputAction.KeyReleaseAction(keyName), false)
+                                    }
+                                },
+                                onKeyTap = { key ->
+                                    if (uiState.isInputEnabled) {
+                                        onInputAction(
+                                            InputAction.KeyComboAction(
+                                                keys = listOf(key.keyName),
+                                                modifiers = armedModifiers,
+                                            ),
+                                            false,
+                                        )
+                                        armedModifiers = modifiersAfterKeyTap(modifierMode, armedModifiers)
+                                    }
+                                },
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding)
+                                        .padding(horizontal = contentHorizontalPadding, vertical = contentVerticalPadding),
+                            )
+
+                        ControlPage.Touchpad ->
+                            TouchpadPage(
+                                enabled = uiState.isInputEnabled,
+                                onTouchpadAction = onInputAction,
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding)
+                                        .padding(horizontal = contentHorizontalPadding, vertical = contentVerticalPadding),
+                            )
+                    }
+                }
+
+                ControlRoute.Settings ->
+                    SettingsScreen(
+                        modifierMode = modifierMode,
+                        onModifierModeSelected = { mode ->
+                            releaseHeldKeys()
+                            armedModifiers = emptyList()
+                            modifierMode = mode
+                        },
+                        onBackTap = {
+                            releaseHeldKeys()
+                            armedModifiers = emptyList()
+                            currentRoute = ControlRoute.Console
+                        },
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                    )
             }
-
-            ControlRoute.Settings ->
-                SettingsScreen(
-                    modifierMode = modifierMode,
-                    onModifierModeSelected = { mode ->
-                        releaseHeldKeys()
-                        armedModifiers = emptyList()
-                        modifierMode = mode
-                    },
-                    onBackTap = {
-                        releaseHeldKeys()
-                        armedModifiers = emptyList()
-                        currentRoute = ControlRoute.Console
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-        }
-
-        Box(
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
-                    .systemBarsPadding(),
-        ) {
-            snackbarHost()
         }
     }
 }
@@ -266,20 +269,17 @@ private fun ConsoleAtmosphere() {
 private fun CornerChrome(
     currentPage: ControlPage,
     connection: ControlConnectionUiState,
+    compact: Boolean,
     onPageSelected: (ControlPage) -> Unit,
     onSettingsTap: () -> Unit,
     onExitTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top,
-        modifier = modifier,
-    ) {
+    if (compact) {
         Column(
-            verticalArrangement = Arrangement.spacedBy(0.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.Start,
-            modifier = Modifier.widthIn(max = 560.dp),
+            modifier = modifier,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -295,18 +295,111 @@ private fun CornerChrome(
                     emphasized = false,
                     onTap = onExitTap,
                 )
-                ConnectionBadge(connection = connection)
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ControlPage.entries.forEach { page ->
+                    CornerButton(
+                        label = page.label,
+                        emphasized = currentPage == page,
+                        onTap = { onPageSelected(page) },
+                    )
+                }
+            }
+
+            ConnectionBadge(
+                connection = connection,
+                modifier = Modifier.fillMaxWidth(),
+                multiline = true,
+            )
+        }
+    } else {
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+            modifier = modifier,
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+                horizontalAlignment = Alignment.Start,
+                modifier = Modifier.widthIn(max = 560.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CornerButton(
+                        label = "Settings",
+                        emphasized = false,
+                        onTap = onSettingsTap,
+                    )
+                    CornerButton(
+                        label = "Minimize",
+                        emphasized = false,
+                        onTap = onExitTap,
+                    )
+                    ConnectionBadge(connection = connection)
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ControlPage.entries.forEach { page ->
+                    CornerButton(
+                        label = page.label,
+                        emphasized = currentPage == page,
+                        onTap = { onPageSelected(page) },
+                    )
+                }
             }
         }
+    }
+}
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ControlPage.entries.forEach { page ->
-                CornerButton(
-                    label = page.label,
-                    emphasized = currentPage == page,
-                    onTap = { onPageSelected(page) },
-                )
-            }
+@Composable
+private fun ConnectionBadge(
+    connection: ControlConnectionUiState,
+    modifier: Modifier = Modifier,
+    multiline: Boolean = false,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val accentColor =
+        when (connection.accent) {
+            ControlStatusAccent.Positive -> colorScheme.onSurface
+            ControlStatusAccent.Warning -> colorScheme.onSurface.copy(alpha = 0.72f)
+            ControlStatusAccent.Neutral -> colorScheme.onSurface.copy(alpha = 0.44f)
+            ControlStatusAccent.Critical -> colorScheme.onSurface.copy(alpha = 0.92f)
+        }
+
+    Surface(
+        color = colorScheme.surface.copy(alpha = 0.9f),
+        shape = RoundedCornerShape(16.dp),
+        modifier =
+            if (multiline) {
+                modifier
+            } else {
+                modifier.widthIn(max = 420.dp)
+            },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(accentColor),
+            )
+            Text(
+                text = "${connection.label} · ${connection.detail}",
+                color = colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = if (multiline) 2 else 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -359,49 +452,6 @@ private fun CornerButton(
 }
 
 @Composable
-private fun ConnectionBadge(
-    connection: ControlConnectionUiState,
-    modifier: Modifier = Modifier,
-) {
-    val colorScheme = MaterialTheme.colorScheme
-    val accentColor =
-        when (connection.accent) {
-            ControlStatusAccent.Positive -> colorScheme.onSurface
-            ControlStatusAccent.Warning -> colorScheme.onSurface.copy(alpha = 0.72f)
-            ControlStatusAccent.Neutral -> colorScheme.onSurface.copy(alpha = 0.44f)
-            ControlStatusAccent.Critical -> colorScheme.onSurface.copy(alpha = 0.92f)
-        }
-
-    Surface(
-        color = colorScheme.surface.copy(alpha = 0.9f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier.widthIn(max = 420.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(accentColor),
-            )
-            Text(
-                text = "${connection.label} · ${connection.detail}",
-                color = colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
 private fun KeyboardPage(
     enabled: Boolean,
     modifierMode: ModifierMode,
@@ -417,10 +467,7 @@ private fun KeyboardPage(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
         shape = RoundedCornerShape(28.dp),
         tonalElevation = 0.dp,
-        modifier =
-            modifier
-                .fillMaxSize()
-                .padding(top = 44.dp),
+        modifier = modifier.fillMaxSize(),
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -573,10 +620,7 @@ private fun TouchpadPage(
     TouchpadSurface(
         enabled = enabled,
         onTouchpadAction = onTouchpadAction,
-        modifier =
-            modifier
-                .fillMaxSize()
-                .padding(top = 44.dp),
+        modifier = modifier.fillMaxSize(),
     )
 }
 
@@ -1011,7 +1055,6 @@ private fun ControlScreenPreview() {
             onInputAction = { _, _ -> },
             onEnvironmentActionTap = {},
             onExitTap = {},
-            onSettingsVisibilityChanged = {},
         )
     }
 }

@@ -3,7 +3,6 @@ package io.github.xhugoliu.touckey
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
-import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -38,7 +37,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         enableEdgeToEdge()
         configureImmersiveMode()
 
@@ -48,7 +46,6 @@ class MainActivity : ComponentActivity() {
                     appContainer = appContainer,
                     onEnvironmentAction = ::handleEnvironmentAction,
                     onExit = ::minimizeControlConsole,
-                    onSettingsVisibilityChanged = ::updateScreenOrientation,
                 )
             }
         }
@@ -136,15 +133,6 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
-    }
-
-    private fun updateScreenOrientation(settingsVisible: Boolean) {
-        requestedOrientation =
-            if (settingsVisible) {
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            } else {
-                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            }
     }
 
     private fun minimizeControlConsole() {

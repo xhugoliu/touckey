@@ -24,8 +24,6 @@ class ControlPresenter(
         )
     }
 
-    fun dispatch(actionId: String): DispatchResult = actionDispatcher.dispatch(actionId)
-
     fun dispatch(action: InputAction): DispatchResult = actionDispatcher.dispatch(action)
 
     private fun buildConnectionLabel(
