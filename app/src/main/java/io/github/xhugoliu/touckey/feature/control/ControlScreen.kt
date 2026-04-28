@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import io.github.xhugoliu.touckey.input.InputAction
 import io.github.xhugoliu.touckey.input.MouseButton
 import io.github.xhugoliu.touckey.ui.theme.TouckeyTheme
@@ -60,6 +61,7 @@ fun ControlScreen(
     snackbarHost: @Composable () -> Unit,
     onInputAction: (InputAction, Boolean) -> Unit,
     onEnvironmentActionTap: (ControlEnvironmentActionId) -> Unit,
+    onConnectionActionTap: (ControlConnectionAction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var currentRoute by rememberSaveable { mutableStateOf(ControlRoute.Console) }
@@ -67,6 +69,7 @@ fun ControlScreen(
     var modifierMode by rememberSaveable { mutableStateOf(ModifierMode.Preset) }
     var armedModifiers by remember { mutableStateOf<List<String>>(emptyList()) }
     var activeHoldKeys by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showConnectionPanel by rememberSaveable { mutableStateOf(false) }
     val colorScheme = MaterialTheme.colorScheme
 
     fun releaseHeldKeys() {
@@ -162,7 +165,13 @@ fun ControlScreen(
                         onSettingsTap = {
                             releaseHeldKeys()
                             armedModifiers = emptyList()
+                            showConnectionPanel = false
                             currentRoute = ControlRoute.Settings
+                        },
+                        onConnectionTap = {
+                            if (uiState.connection.isActionable) {
+                                showConnectionPanel = true
+                            }
                         },
                         modifier =
                             Modifier
@@ -267,6 +276,7 @@ fun ControlScreen(
                         onBackTap = {
                             releaseHeldKeys()
                             armedModifiers = emptyList()
+                            showConnectionPanel = false
                             currentRoute = ControlRoute.Console
                         },
                         modifier =
@@ -275,6 +285,17 @@ fun ControlScreen(
                                 .padding(innerPadding),
                     )
             }
+        }
+
+        if (showConnectionPanel) {
+            ConnectionControlDialog(
+                connection = uiState.connection,
+                onDismiss = { showConnectionPanel = false },
+                onActionTap = { action ->
+                    showConnectionPanel = false
+                    onConnectionActionTap(action)
+                },
+            )
         }
     }
 }
@@ -325,39 +346,43 @@ private fun CornerChrome(
     showPageTabs: Boolean,
     onPageSelected: (ControlPage) -> Unit,
     onSettingsTap: () -> Unit,
+    onConnectionTap: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (compact) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = modifier,
         ) {
-            CornerButton(
-                label = "Settings",
-                emphasized = false,
-                onTap = onSettingsTap,
-                modifier = Modifier.weight(1f),
-            )
-            ConnectionBadge(
-                connection = connection,
-                modifier = Modifier.weight(1.25f),
-                multiline = false,
-                showDetail = false,
-            )
-        }
-
-        if (showPageTabs) {
             Row(
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 10.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                ControlPage.entries.forEach { page ->
-                    CornerButton(
-                        label = page.label,
-                        emphasized = currentPage == page,
-                        onTap = { onPageSelected(page) },
-                    )
+                CornerButton(
+                    label = "Settings",
+                    emphasized = false,
+                    onTap = onSettingsTap,
+                    modifier = Modifier.weight(1f),
+                )
+                ConnectionBadge(
+                    connection = connection,
+                    modifier = Modifier.weight(1.25f),
+                    multiline = false,
+                    showDetail = false,
+                    onTap = onConnectionTap,
+                )
+            }
+
+            if (showPageTabs) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ControlPage.entries.forEach { page ->
+                        CornerButton(
+                            label = page.label,
+                            emphasized = currentPage == page,
+                            onTap = { onPageSelected(page) },
+                        )
+                    }
                 }
             }
         }
@@ -384,6 +409,7 @@ private fun CornerChrome(
                     ConnectionBadge(
                         connection = connection,
                         showDetail = false,
+                        onTap = onConnectionTap,
                     )
                 }
             }
@@ -409,6 +435,7 @@ private fun ConnectionBadge(
     modifier: Modifier = Modifier,
     multiline: Boolean = false,
     showDetail: Boolean = true,
+    onTap: () -> Unit,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val accentColor =
@@ -427,7 +454,14 @@ private fun ConnectionBadge(
                 modifier
             } else {
                 modifier.widthIn(max = 420.dp)
-            },
+            }
+                .then(
+                    if (connection.isActionable) {
+                        Modifier.clickable(onClick = onTap)
+                    } else {
+                        Modifier
+                    },
+                ),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -455,6 +489,170 @@ private fun ConnectionBadge(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun ConnectionControlDialog(
+    connection: ControlConnectionUiState,
+    onDismiss: () -> Unit,
+    onActionTap: (ControlConnectionAction) -> Unit,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = colorScheme.surface,
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 0.dp,
+            modifier = Modifier.widthIn(max = 420.dp),
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = connection.panelTitle,
+                        color = colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    CornerButton(
+                        label = "Close",
+                        emphasized = false,
+                        onTap = onDismiss,
+                    )
+                }
+
+                connection.pendingLabel?.let { pendingLabel ->
+                    Text(
+                        text = pendingLabel,
+                        color = colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+
+                Text(
+                    text = connection.panelDetail,
+                    color = colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+                connection.currentHost?.let { host ->
+                    HostSummary(host = host)
+                }
+
+                if (connection.recentHosts.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Recent hosts",
+                            color = colorScheme.onSurface,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        connection.recentHosts.forEach { host ->
+                            HostSummary(host = host)
+                        }
+                    }
+                }
+
+                if (connection.actions.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        connection.actions.forEach { action ->
+                            ConnectionActionButton(
+                                action = action,
+                                onTap = { onActionTap(action) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HostSummary(host: ControlHostUiState) {
+    val colorScheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(16.dp)
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(colorScheme.surfaceVariant)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = if (host.isCurrent) "${host.name} · Current" else host.name,
+            color = colorScheme.onSurface,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "${host.platformLabel} · ${host.address}",
+            color = colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ConnectionActionButton(
+    action: ControlConnectionAction,
+    onTap: () -> Unit,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(16.dp)
+    val backgroundColor =
+        when {
+            !action.enabled -> colorScheme.surfaceVariant
+            action.emphasized -> colorScheme.primary
+            else -> colorScheme.surface
+        }
+    val borderColor =
+        when {
+            action.emphasized && action.enabled -> colorScheme.primary
+            else -> colorScheme.outline
+        }
+    val textColor =
+        when {
+            !action.enabled -> colorScheme.onSurface.copy(alpha = 0.42f)
+            action.emphasized -> colorScheme.onPrimary
+            else -> colorScheme.onSurface
+        }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(backgroundColor)
+                .border(width = 1.dp, color = borderColor, shape = shape)
+                .clickable(enabled = action.enabled, onClick = onTap)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = action.label,
+            color = textColor,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1112,6 +1310,26 @@ private fun ControlScreenPreview() {
                             label = "MacBook Pro",
                             detail = "Connected to Hugo's MacBook Pro",
                             accent = ControlStatusAccent.Positive,
+                            isActionable = true,
+                            panelTitle = "Connection",
+                            panelDetail = "Manage the active desktop host.",
+                            currentHost =
+                                ControlHostUiState(
+                                    name = "MacBook Pro",
+                                    address = "00:11:22:33:44:55",
+                                    platformLabel = "蓝牙主机",
+                                    isCurrent = true,
+                                ),
+                            recentHosts = emptyList(),
+                            actions =
+                                listOf(
+                                    ControlConnectionAction(
+                                        id = ControlConnectionActionId.Disconnect,
+                                        label = "Disconnect",
+                                        emphasized = true,
+                                    ),
+                                ),
+                            pendingLabel = null,
                         ),
                     setupPrompt = null,
                     isInputEnabled = true,
@@ -1119,6 +1337,7 @@ private fun ControlScreenPreview() {
             snackbarHost = {},
             onInputAction = { _, _ -> },
             onEnvironmentActionTap = {},
+            onConnectionActionTap = {},
         )
     }
 }

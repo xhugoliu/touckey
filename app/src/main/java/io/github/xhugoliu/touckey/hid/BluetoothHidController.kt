@@ -13,8 +13,12 @@ import androidx.core.content.ContextCompat
 import io.github.xhugoliu.touckey.core.model.ConnectionStatus
 import io.github.xhugoliu.touckey.core.model.HostDevice
 import io.github.xhugoliu.touckey.input.InputAction
+import io.github.xhugoliu.touckey.session.HostControlState
+import io.github.xhugoliu.touckey.session.HostOperationKind
+import io.github.xhugoliu.touckey.session.HostPendingOperation
 import io.github.xhugoliu.touckey.session.SessionCommandResult
 import io.github.xhugoliu.touckey.session.SessionController
+import io.github.xhugoliu.touckey.session.SessionHostCommand
 import io.github.xhugoliu.touckey.session.SessionSnapshot
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -33,14 +37,19 @@ class BluetoothHidController(
     private val sendExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mutableSnapshots = MutableStateFlow(SessionSnapshot.initial())
 
+    private val stateLock = Any()
     private var hidDevice: BluetoothHidDevice? = null
     private var connectedHost: BluetoothDevice? = null
+    private var knownHostDevices: Map<String, BluetoothDevice> = emptyMap()
+    private var recentHosts: List<HostDevice> = emptyList()
+    private var pendingHostOperation: HostPendingOperation? = null
     private var profileReady: Boolean = false
     private var registrationRequested: Boolean = false
     private var appRegistered: Boolean = false
     private var profileRequestInFlight: Boolean = false
     private var profileUnavailable: Boolean = false
     private var lastDetailOverride: String? = null
+    private var lastHostCommandMessage: String? = null
     private var mouseButtons: Int = 0
     private var keyboardModifiers: Int = 0
     private var keyboardKeys: List<Int> = emptyList()
@@ -52,10 +61,12 @@ class BluetoothHidController(
     }
 
     override fun refreshState() {
-        updateSnapshot(lastDetailOverride)
+        synchronized(stateLock) {
+            updateSnapshot(lastDetailOverride)
+        }
     }
 
-    override fun ensureRegistered(): SessionCommandResult {
+    override fun ensureRegistered(): SessionCommandResult = synchronized(stateLock) {
         updateSnapshot(lastDetailOverride)
 
         val adapter = bluetoothAdapter()
@@ -114,7 +125,7 @@ class BluetoothHidController(
 
         if (appRegistered) {
             return updateAndReturn(
-                status = if (connectedHost != null) ConnectionStatus.Connected else ConnectionStatus.Ready,
+                status = ConnectionStatus.Ready,
                 detail =
                     if (connectedHost != null) {
                         "已连接到 ${connectedHost?.name ?: connectedHost?.address ?: "主机"}，可以发送键盘和媒体 report。"
@@ -151,7 +162,38 @@ class BluetoothHidController(
         }
     }
 
-    override fun send(action: InputAction): HidSendResult {
+    override fun performHostCommand(command: SessionHostCommand): SessionCommandResult =
+        synchronized(stateLock) {
+            val pending = pendingHostOperation
+            if (pending != null) {
+                val message = "正在${pending.kind.label}，请稍后再试。"
+                lastHostCommandMessage = message
+                updateSnapshot(lastDetailOverride)
+                return SessionCommandResult(accepted = false, message = message)
+            }
+
+            val hid = hidDevice
+                ?: return hostCommandRejected("系统蓝牙 HID 服务还没准备好。")
+
+            if (!appRegistered) {
+                return hostCommandRejected("Touckey 尚未注册 HID，请先完成注册。")
+            }
+
+            when (command) {
+                SessionHostCommand.Disconnect -> performDisconnectCommand(hid)
+                SessionHostCommand.ReconnectLast -> performReconnectLastCommand(hid)
+                is SessionHostCommand.Connect -> performConnectCommand(hid, command.address)
+            }
+        }
+
+    override fun send(action: InputAction): HidSendResult = synchronized(stateLock) {
+        if (pendingHostOperation != null) {
+            return HidSendResult(
+                accepted = false,
+                detail = "当前正在切换主机，动作不会被发送。",
+            )
+        }
+
         val host = connectedHost
             ?: return HidSendResult(
                 accepted = false,
@@ -222,48 +264,166 @@ class BluetoothHidController(
             else -> false
         }
 
+    private fun performDisconnectCommand(hid: BluetoothHidDevice): SessionCommandResult {
+        val host = connectedHost
+            ?: return hostCommandRejected("当前没有已连接的桌面主机。")
+        val hostDevice = rememberHost(host)
+
+        releaseHeldInput(hid, host)
+        pendingHostOperation =
+            HostPendingOperation(
+                kind = HostOperationKind.Disconnecting,
+                targetAddress = hostDevice.address,
+                targetName = hostDevice.name,
+            )
+
+        val message = "正在断开 ${hostDevice.name}。"
+        lastHostCommandMessage = message
+        val accepted = hid.disconnect(host)
+        if (!accepted) {
+            pendingHostOperation = null
+            val rejectedMessage = "系统没有接受断开 ${hostDevice.name} 的请求。"
+            lastHostCommandMessage = rejectedMessage
+            updateSnapshot(lastDetailOverride)
+            return SessionCommandResult(accepted = false, message = rejectedMessage)
+        }
+
+        updateSnapshot(lastDetailOverride)
+        return SessionCommandResult(accepted = true, message = message)
+    }
+
+    private fun performReconnectLastCommand(hid: BluetoothHidDevice): SessionCommandResult {
+        val current = connectedHost
+        if (current != null) {
+            val host = rememberHost(current)
+            return hostCommandRejected("当前已连接到 ${host.name}。")
+        }
+
+        val target = recentHosts.firstOrNull()
+            ?: return hostCommandRejected("还没有可重新连接的历史主机。")
+
+        return connectKnownHost(hid, target.address, switchingFrom = null)
+    }
+
+    private fun performConnectCommand(
+        hid: BluetoothHidDevice,
+        address: String,
+    ): SessionCommandResult {
+        val current = connectedHost
+        if (current?.address == address) {
+            val host = rememberHost(current)
+            return hostCommandRejected("当前已连接到 ${host.name}。")
+        }
+
+        return connectKnownHost(hid, address, switchingFrom = current)
+    }
+
+    private fun connectKnownHost(
+        hid: BluetoothHidDevice,
+        address: String,
+        switchingFrom: BluetoothDevice?,
+    ): SessionCommandResult {
+        val targetDevice = knownHostDevices[address]
+            ?: return hostCommandRejected("无法连接未知主机 $address。")
+        val target = rememberHost(targetDevice)
+
+        if (switchingFrom != null) {
+            val source = rememberHost(switchingFrom)
+            releaseHeldInput(hid, switchingFrom)
+            pendingHostOperation =
+                HostPendingOperation(
+                    kind = HostOperationKind.Switching,
+                    targetAddress = target.address,
+                    targetName = target.name,
+                    sourceAddress = source.address,
+                )
+            val message = "正在从 ${source.name} 切换到 ${target.name}。"
+            lastHostCommandMessage = message
+            val accepted = hid.disconnect(switchingFrom)
+            if (!accepted) {
+                pendingHostOperation = null
+                val rejectedMessage = "系统没有接受断开 ${source.name} 的请求，无法切换到 ${target.name}。"
+                lastHostCommandMessage = rejectedMessage
+                updateSnapshot(lastDetailOverride)
+                return SessionCommandResult(accepted = false, message = rejectedMessage)
+            }
+
+            updateSnapshot(lastDetailOverride)
+            return SessionCommandResult(accepted = true, message = message)
+        }
+
+        pendingHostOperation =
+            HostPendingOperation(
+                kind = HostOperationKind.Connecting,
+                targetAddress = target.address,
+                targetName = target.name,
+            )
+        val message = "正在连接 ${target.name}。"
+        lastHostCommandMessage = message
+        val accepted = hid.connect(targetDevice)
+        if (!accepted) {
+            pendingHostOperation = null
+            val rejectedMessage = "系统没有接受连接 ${target.name} 的请求。"
+            lastHostCommandMessage = rejectedMessage
+            updateSnapshot(lastDetailOverride)
+            return SessionCommandResult(accepted = false, message = rejectedMessage)
+        }
+
+        updateSnapshot(lastDetailOverride)
+        return SessionCommandResult(accepted = true, message = message)
+    }
+
+    private fun hostCommandRejected(message: String): SessionCommandResult {
+        lastHostCommandMessage = message
+        updateSnapshot(lastDetailOverride)
+        return SessionCommandResult(accepted = false, message = message)
+    }
+
     private val serviceListener =
         object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(
                 profile: Int,
                 proxy: BluetoothProfile,
             ) {
-                if (profile != BluetoothProfile.HID_DEVICE) {
-                    return
-                }
-
-                hidDevice = proxy as? BluetoothHidDevice
-                profileReady = hidDevice != null
-                profileUnavailable = hidDevice == null
-                profileRequestInFlight = false
-                lastDetailOverride =
-                    if (profileReady) {
-                        "系统蓝牙 HID 服务已就绪，接下来可以注册当前应用。"
-                    } else {
-                        "系统返回了异常的 HID 代理对象。"
+                synchronized(stateLock) {
+                    if (profile != BluetoothProfile.HID_DEVICE) {
+                        return
                     }
-                updateSnapshot(lastDetailOverride)
 
-                if (profileReady && registrationRequested) {
-                    ensureRegistered()
+                    hidDevice = proxy as? BluetoothHidDevice
+                    profileReady = hidDevice != null
+                    profileUnavailable = hidDevice == null
+                    profileRequestInFlight = false
+                    lastDetailOverride =
+                        if (profileReady) {
+                            "系统蓝牙 HID 服务已就绪，接下来可以注册当前应用。"
+                        } else {
+                            "系统返回了异常的 HID 代理对象。"
+                        }
+                    updateSnapshot(lastDetailOverride)
+
+                    if (profileReady && registrationRequested) {
+                        ensureRegistered()
+                    }
                 }
             }
 
             override fun onServiceDisconnected(profile: Int) {
-                if (profile != BluetoothProfile.HID_DEVICE) {
-                    return
-                }
+                synchronized(stateLock) {
+                    if (profile != BluetoothProfile.HID_DEVICE) {
+                        return
+                    }
 
-                hidDevice = null
-                profileReady = false
-                profileRequestInFlight = false
-                appRegistered = false
-                connectedHost = null
-                mouseButtons = 0
-                keyboardModifiers = 0
-                keyboardKeys = emptyList()
-                lastDetailOverride = "系统蓝牙 HID 服务已断开。"
-                updateSnapshot(lastDetailOverride)
+                    hidDevice = null
+                    profileReady = false
+                    profileRequestInFlight = false
+                    appRegistered = false
+                    connectedHost = null
+                    pendingHostOperation = null
+                    clearHeldInputState()
+                    lastDetailOverride = "系统蓝牙 HID 服务已断开。"
+                    updateSnapshot(lastDetailOverride)
+                }
             }
         }
 
@@ -273,53 +433,171 @@ class BluetoothHidController(
                 pluggedDevice: BluetoothDevice?,
                 registered: Boolean,
             ) {
-                appRegistered = registered
-                if (!registered) {
-                    connectedHost = null
-                    mouseButtons = 0
-                    keyboardModifiers = 0
-                    keyboardKeys = emptyList()
-                }
-
-                lastDetailOverride =
-                    if (registered) {
-                        "HID 已注册。保持 Touckey 前台或前台服务运行，然后在电脑蓝牙设置里搜索当前手机。"
-                    } else {
-                        "HID 当前未注册。通常在应用不再处于前台时，系统会自动注销。"
+                synchronized(stateLock) {
+                    appRegistered = registered
+                    if (!registered) {
+                        connectedHost = null
+                        pendingHostOperation = null
+                        clearHeldInputState()
                     }
 
-                if (registered && pluggedDevice != null) {
-                    hidDevice?.connect(pluggedDevice)
-                }
+                    lastDetailOverride =
+                        if (registered) {
+                            "HID 已注册。保持 Touckey 前台或前台服务运行，然后在电脑蓝牙设置里搜索当前手机。"
+                        } else {
+                            "HID 当前未注册。通常在应用不再处于前台时，系统会自动注销。"
+                        }
 
-                updateSnapshot(lastDetailOverride)
+                    if (registered && pluggedDevice != null) {
+                        handleAutoConnectCandidate(pluggedDevice)
+                    }
+
+                    updateSnapshot(lastDetailOverride)
+                }
             }
 
             override fun onConnectionStateChanged(
                 device: BluetoothDevice,
                 state: Int,
             ) {
-                connectedHost =
-                    when (state) {
-                        BluetoothProfile.STATE_CONNECTED -> device
-                        else -> null
-                    }
-                if (state != BluetoothProfile.STATE_CONNECTED) {
-                    mouseButtons = 0
-                    keyboardModifiers = 0
-                    keyboardKeys = emptyList()
+                synchronized(stateLock) {
+                    handleConnectionStateChanged(device, state)
+                    updateSnapshot(lastDetailOverride)
                 }
-
-                lastDetailOverride =
-                    when (state) {
-                        BluetoothProfile.STATE_CONNECTING -> "主机 ${device.name ?: device.address} 正在建立 HID 连接。"
-                        BluetoothProfile.STATE_CONNECTED -> "已连接到 ${device.name ?: device.address}，可以发送 report。"
-                        BluetoothProfile.STATE_DISCONNECTING -> "主机 ${device.name ?: device.address} 正在断开。"
-                        else -> "当前没有活跃主机连接，可继续等待配对或重新连接。"
-                    }
-                updateSnapshot(lastDetailOverride)
             }
         }
+
+    private fun handleAutoConnectCandidate(device: BluetoothDevice) {
+        val candidate = rememberHost(device)
+        val pending = pendingHostOperation
+        if (pending != null && pending.targetAddress != candidate.address) {
+            lastHostCommandMessage = "已发现 ${candidate.name}，当前仍在${pending.kind.label}。"
+            return
+        }
+
+        if (pending == null) {
+            pendingHostOperation =
+                HostPendingOperation(
+                    kind = HostOperationKind.Connecting,
+                    targetAddress = candidate.address,
+                    targetName = candidate.name,
+                )
+            lastHostCommandMessage = "正在连接 ${candidate.name}。"
+        }
+
+        val accepted = hidDevice?.connect(device) == true
+        if (!accepted) {
+            pendingHostOperation = null
+            lastHostCommandMessage = "系统没有接受连接 ${candidate.name} 的请求。"
+        }
+    }
+
+    private fun handleConnectionStateChanged(
+        device: BluetoothDevice,
+        state: Int,
+    ) {
+        val host = rememberHost(device)
+        val pending = pendingHostOperation
+
+        when (state) {
+            BluetoothProfile.STATE_CONNECTING -> {
+                if (pending == null) {
+                    pendingHostOperation =
+                        HostPendingOperation(
+                            kind = HostOperationKind.Connecting,
+                            targetAddress = host.address,
+                            targetName = host.name,
+                        )
+                }
+                lastDetailOverride = "主机 ${host.name} 正在建立 HID 连接。"
+            }
+
+            BluetoothProfile.STATE_CONNECTED -> {
+                connectedHost = device
+                pendingHostOperation = null
+                clearHeldInputState()
+                lastDetailOverride = "已连接到 ${host.name}，可以发送 report。"
+                lastHostCommandMessage = lastDetailOverride
+            }
+
+            BluetoothProfile.STATE_DISCONNECTING -> {
+                if (connectedHost?.address == host.address) {
+                    connectedHost = null
+                    clearHeldInputState()
+                }
+                lastDetailOverride = "主机 ${host.name} 正在断开。"
+            }
+
+            BluetoothProfile.STATE_DISCONNECTED -> {
+                if (connectedHost?.address == host.address) {
+                    connectedHost = null
+                }
+                clearHeldInputState()
+                handleDisconnectedCallback(host, pending)
+            }
+
+            else -> {
+                if (connectedHost?.address == host.address) {
+                    connectedHost = null
+                }
+                clearHeldInputState()
+                if (pending?.targetAddress == host.address || pending?.sourceAddress == host.address) {
+                    pendingHostOperation = null
+                }
+                lastDetailOverride = "当前没有活跃主机连接，可继续等待配对或重新连接。"
+            }
+        }
+    }
+
+    private fun handleDisconnectedCallback(
+        host: HostDevice,
+        pending: HostPendingOperation?,
+    ) {
+        when {
+            pending?.kind == HostOperationKind.Disconnecting && pending.targetAddress == host.address -> {
+                pendingHostOperation = null
+                lastDetailOverride = "已断开 ${host.name}。"
+                lastHostCommandMessage = lastDetailOverride
+            }
+
+            pending?.kind == HostOperationKind.Switching && pending.sourceAddress == host.address -> {
+                val targetAddress = pending.targetAddress
+                val targetDevice = targetAddress?.let(knownHostDevices::get)
+                if (targetDevice == null) {
+                    pendingHostOperation = null
+                    lastDetailOverride = "已断开 ${host.name}，但找不到要切换的目标主机。"
+                    lastHostCommandMessage = lastDetailOverride
+                    return
+                }
+
+                val target = rememberHost(targetDevice)
+                pendingHostOperation =
+                    HostPendingOperation(
+                        kind = HostOperationKind.Connecting,
+                        targetAddress = target.address,
+                        targetName = target.name,
+                    )
+                lastDetailOverride = "已断开 ${host.name}，正在连接 ${target.name}。"
+                lastHostCommandMessage = lastDetailOverride
+                val accepted = hidDevice?.connect(targetDevice) == true
+                if (!accepted) {
+                    pendingHostOperation = null
+                    lastDetailOverride = "系统没有接受连接 ${target.name} 的请求。"
+                    lastHostCommandMessage = lastDetailOverride
+                }
+            }
+
+            pending?.kind == HostOperationKind.Connecting && pending.targetAddress == host.address -> {
+                pendingHostOperation = null
+                lastDetailOverride = "连接 ${host.name} 未完成，可稍后重试。"
+                lastHostCommandMessage = lastDetailOverride
+            }
+
+            else -> {
+                lastDetailOverride = "当前没有活跃主机连接，可继续等待配对或重新连接。"
+            }
+        }
+    }
 
     private fun bluetoothAdapter(): BluetoothAdapter? = bluetoothManager.adapter
 
@@ -371,7 +649,6 @@ class BluetoothHidController(
                 missingPermissions.isNotEmpty() -> ConnectionStatus.MissingPermission
                 !adapter.isEnabled -> ConnectionStatus.BluetoothDisabled
                 profileUnavailable -> ConnectionStatus.Unsupported
-                connectedHost != null -> ConnectionStatus.Connected
                 appRegistered -> ConnectionStatus.Ready
                 profileRequestInFlight || registrationRequested -> ConnectionStatus.Initializing
                 profileReady -> ConnectionStatus.NeedsRegistration
@@ -390,12 +667,20 @@ class BluetoothHidController(
                     ConnectionStatus.Connected -> "已连接到桌面主机，可以发送快捷动作。"
                     ConnectionStatus.Error -> "蓝牙 HID 初始化出现错误。"
                 }
+        val hostControl =
+            HostControlState(
+                currentHost = host,
+                recentHosts = recentHosts,
+                pendingOperation = pendingHostOperation,
+                lastCommandMessage = lastHostCommandMessage,
+            )
 
         mutableSnapshots.value =
             SessionSnapshot(
                 status = status,
                 detail = detail,
                 host = host,
+                hostControl = hostControl,
                 hasRequiredPermissions = missingPermissions.isEmpty(),
                 missingPermissions = missingPermissions,
                 isBluetoothEnabled = adapter?.isEnabled == true,
@@ -406,10 +691,53 @@ class BluetoothHidController(
             )
     }
 
+    private fun releaseHeldInput(
+        hid: BluetoothHidDevice,
+        host: BluetoothDevice,
+    ) {
+        HidReportEncoder
+            .releaseAllPackets(
+                currentMouseButtons = mouseButtons,
+                currentKeyboardModifiers = keyboardModifiers,
+                currentKeyboardKeys = keyboardKeys,
+            )
+            .forEach { packet ->
+                hid.sendReport(host, packet.reportId, packet.payload)
+            }
+        clearHeldInputState()
+    }
+
+    private fun clearHeldInputState() {
+        mouseButtons = 0
+        keyboardModifiers = 0
+        keyboardKeys = emptyList()
+    }
+
+    private fun rememberHost(device: BluetoothDevice): HostDevice {
+        val host = device.toHostDevice()
+        knownHostDevices = knownHostDevices + (host.address to device)
+        recentHosts =
+            (listOf(host) + recentHosts.filterNot { it.address == host.address })
+                .take(MAX_RECENT_HOSTS)
+        return host
+    }
+
     private fun BluetoothDevice.toHostDevice(): HostDevice =
         HostDevice(
             name = name ?: "未知主机",
             address = address,
             platformLabel = "蓝牙主机",
         )
+
+    private val HostOperationKind.label: String
+        get() =
+            when (this) {
+                HostOperationKind.Connecting -> "连接主机"
+                HostOperationKind.Disconnecting -> "断开主机"
+                HostOperationKind.Switching -> "切换主机"
+            }
+
+    private companion object {
+        const val MAX_RECENT_HOSTS = 5
+    }
 }

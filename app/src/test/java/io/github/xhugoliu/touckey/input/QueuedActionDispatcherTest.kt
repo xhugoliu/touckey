@@ -1,10 +1,15 @@
 package io.github.xhugoliu.touckey.input
 
 import io.github.xhugoliu.touckey.core.model.ConnectionStatus
+import io.github.xhugoliu.touckey.core.model.HostDevice
 import io.github.xhugoliu.touckey.hid.HidGateway
 import io.github.xhugoliu.touckey.hid.HidSendResult
+import io.github.xhugoliu.touckey.session.HostControlState
+import io.github.xhugoliu.touckey.session.HostOperationKind
+import io.github.xhugoliu.touckey.session.HostPendingOperation
 import io.github.xhugoliu.touckey.session.SessionCommandResult
 import io.github.xhugoliu.touckey.session.SessionController
+import io.github.xhugoliu.touckey.session.SessionHostCommand
 import io.github.xhugoliu.touckey.session.SessionSnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +27,7 @@ class QueuedActionDispatcherTest {
         val dispatcher =
             QueuedActionDispatcher(
                 hidGateway = hidGateway,
-                sessionController = FakeSessionController(ConnectionStatus.Ready),
+                sessionController = FakeSessionController(SessionSnapshot.initial().copy(status = ConnectionStatus.Ready)),
             )
 
         val action = InputAction.MouseButtonClickAction(MouseButton.Left)
@@ -43,7 +48,14 @@ class QueuedActionDispatcherTest {
         val dispatcher =
             QueuedActionDispatcher(
                 hidGateway = hidGateway,
-                sessionController = FakeSessionController(ConnectionStatus.Connected),
+                sessionController =
+                    FakeSessionController(
+                        SessionSnapshot.initial().copy(
+                            status = ConnectionStatus.Ready,
+                            host = testHost,
+                            hostControl = HostControlState(currentHost = testHost),
+                        ),
+                    ),
             )
 
         val result = dispatcher.dispatch(action)
@@ -51,6 +63,38 @@ class QueuedActionDispatcherTest {
         assertTrue(result.accepted)
         assertEquals("已发送 PlayPause。", result.message)
         assertSame(action, hidGateway.lastAction)
+    }
+
+    @Test
+    fun `rejects actions while a host operation is pending`() {
+        val hidGateway = FakeHidGateway()
+        val dispatcher =
+            QueuedActionDispatcher(
+                hidGateway = hidGateway,
+                sessionController =
+                    FakeSessionController(
+                        SessionSnapshot.initial().copy(
+                            status = ConnectionStatus.Ready,
+                            host = testHost,
+                            hostControl =
+                                HostControlState(
+                                    currentHost = testHost,
+                                    pendingOperation =
+                                        HostPendingOperation(
+                                            kind = HostOperationKind.Disconnecting,
+                                            targetAddress = testHost.address,
+                                            targetName = testHost.name,
+                                        ),
+                                ),
+                        ),
+                    ),
+            )
+
+        val result = dispatcher.dispatch(InputAction.ConsumerControlAction("PlayPause"))
+
+        assertFalse(result.accepted)
+        assertEquals("当前还没有活跃主机连接，PlayPause 不会被发送。", result.message)
+        assertNull(hidGateway.lastAction)
     }
 
     private class FakeHidGateway(
@@ -65,14 +109,25 @@ class QueuedActionDispatcherTest {
     }
 
     private class FakeSessionController(
-        status: ConnectionStatus,
+        snapshot: SessionSnapshot,
     ) : SessionController {
         override val snapshots: StateFlow<SessionSnapshot> =
-            MutableStateFlow(SessionSnapshot.initial().copy(status = status))
+            MutableStateFlow(snapshot)
 
         override fun refreshState() {
         }
 
         override fun ensureRegistered(): SessionCommandResult = SessionCommandResult(false, "unused")
+
+        override fun performHostCommand(command: SessionHostCommand): SessionCommandResult = SessionCommandResult(false, "unused")
+    }
+
+    private companion object {
+        val testHost =
+            HostDevice(
+                name = "MacBook Pro",
+                address = "00:11:22:33:44:55",
+                platformLabel = "蓝牙主机",
+            )
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.xhugoliu.touckey.app.AppContainer
+import io.github.xhugoliu.touckey.feature.control.ControlConnectionAction
 import io.github.xhugoliu.touckey.feature.control.ControlEnvironmentActionId
 import io.github.xhugoliu.touckey.feature.control.ControlScreen
 import kotlinx.coroutines.launch
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 fun TouckeyApp(
     appContainer: AppContainer,
     onEnvironmentAction: (ControlEnvironmentActionId) -> String,
+    onConnectionAction: (ControlConnectionAction) -> String,
 ) {
     val presenter = remember(appContainer) { appContainer.controlPresenter }
     val sessionSnapshot by appContainer.sessionController.snapshots.collectAsStateWithLifecycle()
@@ -37,6 +39,11 @@ fun TouckeyApp(
         onEnvironmentActionTap = { actionId ->
             coroutineScope.launch {
                 snackbarHostState.showSnackbar(onEnvironmentAction(actionId))
+            }
+        },
+        onConnectionActionTap = { action ->
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(onConnectionAction(action))
             }
         },
     )

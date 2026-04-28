@@ -14,8 +14,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.github.xhugoliu.touckey.feature.control.ControlConnectionAction
+import io.github.xhugoliu.touckey.feature.control.ControlConnectionActionId
 import io.github.xhugoliu.touckey.feature.control.ControlEnvironmentActionId
 import io.github.xhugoliu.touckey.hid.BluetoothHidForegroundService
+import io.github.xhugoliu.touckey.session.SessionHostCommand
 import io.github.xhugoliu.touckey.ui.TouckeyApp
 import io.github.xhugoliu.touckey.ui.theme.TouckeyTheme
 
@@ -47,6 +50,7 @@ class MainActivity : ComponentActivity() {
                 TouckeyApp(
                     appContainer = appContainer,
                     onEnvironmentAction = ::handleEnvironmentAction,
+                    onConnectionAction = ::handleConnectionAction,
                 )
             }
         }
@@ -108,6 +112,21 @@ class MainActivity : ComponentActivity() {
                 appContainer.sessionController.snapshot().detail
             }
         }
+
+    private fun handleConnectionAction(action: ControlConnectionAction): String {
+        val command =
+            when (action.id) {
+                ControlConnectionActionId.Disconnect -> SessionHostCommand.Disconnect
+                ControlConnectionActionId.ReconnectLast -> SessionHostCommand.ReconnectLast
+                ControlConnectionActionId.ConnectHost -> {
+                    val address = action.targetAddress
+                        ?: return "缺少要连接的主机地址。"
+                    SessionHostCommand.Connect(address)
+                }
+            }
+
+        return appContainer.sessionController.performHostCommand(command).message
+    }
 
     private fun requestBluetoothPermissions() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {

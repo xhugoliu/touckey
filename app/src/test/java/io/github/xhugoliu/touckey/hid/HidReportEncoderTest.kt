@@ -197,6 +197,22 @@ class HidReportEncoderTest {
         assertEquals(0, releaseModifier.nextKeyboardModifiers)
     }
 
+    @Test
+    fun `release all packets clear held keyboard and mouse state`() {
+        val packets =
+            HidReportEncoder.releaseAllPackets(
+                currentMouseButtons = 1,
+                currentKeyboardModifiers = 0x02,
+                currentKeyboardKeys = listOf(0x04),
+            )
+
+        assertEquals(2, packets.size)
+        assertEquals(BluetoothHidDescriptor.KEYBOARD_REPORT_ID, packets.first().reportId)
+        assertTrue(packets.first().payload.all { it.toInt() == 0 })
+        assertEquals(BluetoothHidDescriptor.MOUSE_REPORT_ID, packets.last().reportId)
+        assertTrue(packets.last().payload.all { it.toInt() == 0 })
+    }
+
     private fun List<Int>.containsSequence(sequence: List<Int>): Boolean =
         windowed(sequence.size).any { window ->
             window == sequence

@@ -147,6 +147,30 @@ object HidReportEncoder {
             is InputAction.ConsumerControlAction -> encodeConsumer(action, currentMouseButtons, currentKeyboardModifiers, currentKeyboardKeys)
         }
 
+    fun releaseAllPackets(
+        currentMouseButtons: Int,
+        currentKeyboardModifiers: Int,
+        currentKeyboardKeys: List<Int>,
+    ): List<HidPacket> =
+        buildList {
+            if (currentKeyboardModifiers != 0 || currentKeyboardKeys.isNotEmpty()) {
+                add(
+                    HidPacket(
+                        BluetoothHidDescriptor.KEYBOARD_REPORT_ID,
+                        keyboardReport(modifiers = 0, keys = emptyList()),
+                    ),
+                )
+            }
+            if (currentMouseButtons != 0) {
+                add(
+                    HidPacket(
+                        BluetoothHidDescriptor.MOUSE_REPORT_ID,
+                        mouseReport(buttons = 0),
+                    ),
+                )
+            }
+        }
+
     private fun encodePointerMove(
         action: InputAction.PointerMoveAction,
         currentMouseButtons: Int,
