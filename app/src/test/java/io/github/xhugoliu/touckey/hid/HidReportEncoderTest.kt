@@ -20,9 +20,12 @@ class HidReportEncoderTest {
         assertEquals(1, result.nextMouseButtons)
         assertEquals(0, result.nextKeyboardModifiers)
         assertEquals(emptyList<Int>(), result.nextKeyboardKeys)
+        assertEquals(HidReportEncoder.MOUSE_REPORT_PAYLOAD_SIZE, result.packets.single().payload.size)
         assertEquals(1, result.packets.single().payload[0].toInt())
         assertEquals(12, result.packets.single().payload[1].toInt())
         assertEquals(-7, result.packets.single().payload[2].toInt())
+        assertEquals(0, result.packets.single().payload[3].toInt())
+        assertEquals(0, result.packets.single().payload[4].toInt())
     }
 
     @Test
@@ -36,6 +39,7 @@ class HidReportEncoderTest {
             ) as HidEncodingResult.Supported
 
         assertEquals(1, press.nextMouseButtons)
+        assertEquals(HidReportEncoder.MOUSE_REPORT_PAYLOAD_SIZE, press.packets.single().payload.size)
         assertEquals(1, press.packets.single().payload[0].toInt())
 
         val release =
@@ -47,6 +51,7 @@ class HidReportEncoderTest {
             ) as HidEncodingResult.Supported
 
         assertEquals(0, release.nextMouseButtons)
+        assertEquals(HidReportEncoder.MOUSE_REPORT_PAYLOAD_SIZE, release.packets.single().payload.size)
         assertEquals(0, release.packets.single().payload[0].toInt())
     }
 
@@ -62,8 +67,46 @@ class HidReportEncoderTest {
 
         assertTrue(result is HidEncodingResult.Supported)
         result as HidEncodingResult.Supported
+        assertEquals(HidReportEncoder.MOUSE_REPORT_PAYLOAD_SIZE, result.packets.single().payload.size)
         assertEquals(-12, result.packets.single().payload[3].toInt())
         assertEquals(10, result.packets.single().payload[4].toInt())
+    }
+
+    @Test
+    fun `mouse descriptor declares x y wheel and ac pan usages`() {
+        val reportMap = BluetoothHidDescriptor.reportMap.map { it.toInt() and 0xFF }
+
+        assertTrue(
+            reportMap.containsSequence(
+                listOf(
+                    0x09,
+                    0x30,
+                    0x09,
+                    0x31,
+                    0x09,
+                    0x38,
+                    0x15,
+                    0x81,
+                    0x25,
+                    0x7F,
+                    0x75,
+                    0x08,
+                    0x95,
+                    0x03,
+                    0x81,
+                    0x06,
+                    0x05,
+                    0x0C,
+                    0x0A,
+                    0x38,
+                    0x02,
+                    0x95,
+                    0x01,
+                    0x81,
+                    0x06,
+                ),
+            ),
+        )
     }
 
     @Test
@@ -153,4 +196,9 @@ class HidReportEncoderTest {
         assertEquals(0, releaseModifier.packets.single().payload[0].toInt())
         assertEquals(0, releaseModifier.nextKeyboardModifiers)
     }
+
+    private fun List<Int>.containsSequence(sequence: List<Int>): Boolean =
+        windowed(sequence.size).any { window ->
+            window == sequence
+        }
 }

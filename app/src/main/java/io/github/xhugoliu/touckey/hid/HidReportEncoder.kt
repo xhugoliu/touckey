@@ -24,6 +24,8 @@ sealed interface HidEncodingResult {
 }
 
 object HidReportEncoder {
+    const val MOUSE_REPORT_PAYLOAD_SIZE = 5
+
     private val modifierBits =
         buildMap {
             put("Ctrl", 0x01)
@@ -164,7 +166,11 @@ object HidReportEncoder {
                 listOf(
                     HidPacket(
                         BluetoothHidDescriptor.MOUSE_REPORT_ID,
-                        byteArrayOf(currentMouseButtons.toByte(), deltaX, deltaY, 0),
+                        mouseReport(
+                            buttons = currentMouseButtons,
+                            deltaX = deltaX,
+                            deltaY = deltaY,
+                        ),
                     ),
                 ),
             nextMouseButtons = currentMouseButtons,
@@ -298,7 +304,10 @@ object HidReportEncoder {
             summary = "${action.button.name} 按下",
             packets =
                 listOf(
-                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(nextButtons.toByte(), 0, 0, 0)),
+                    HidPacket(
+                        BluetoothHidDescriptor.MOUSE_REPORT_ID,
+                        mouseReport(buttons = nextButtons),
+                    ),
                 ),
             nextMouseButtons = nextButtons,
             nextKeyboardModifiers = currentKeyboardModifiers,
@@ -321,7 +330,10 @@ object HidReportEncoder {
             summary = "${action.button.name} 释放",
             packets =
                 listOf(
-                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(nextButtons.toByte(), 0, 0, 0)),
+                    HidPacket(
+                        BluetoothHidDescriptor.MOUSE_REPORT_ID,
+                        mouseReport(buttons = nextButtons),
+                    ),
                 ),
             nextMouseButtons = nextButtons,
             nextKeyboardModifiers = currentKeyboardModifiers,
@@ -344,8 +356,14 @@ object HidReportEncoder {
             summary = "${action.button.name} 鼠标按键",
             packets =
                 listOf(
-                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(pressedButtons.toByte(), 0, 0, 0)),
-                    HidPacket(BluetoothHidDescriptor.MOUSE_REPORT_ID, byteArrayOf(currentMouseButtons.toByte(), 0, 0, 0)),
+                    HidPacket(
+                        BluetoothHidDescriptor.MOUSE_REPORT_ID,
+                        mouseReport(buttons = pressedButtons),
+                    ),
+                    HidPacket(
+                        BluetoothHidDescriptor.MOUSE_REPORT_ID,
+                        mouseReport(buttons = currentMouseButtons),
+                    ),
                 ),
             nextMouseButtons = currentMouseButtons,
             nextKeyboardModifiers = currentKeyboardModifiers,
@@ -361,7 +379,6 @@ object HidReportEncoder {
     ): HidEncodingResult {
         val wheel = action.vertical.coerceIn(-127, 127).toByte()
         val pan = action.horizontal.coerceIn(-127, 127).toByte()
-        val scrollReport = byteArrayOf(0, 0, 0, wheel)
 
         return HidEncodingResult.Supported(
             summary =
@@ -374,7 +391,11 @@ object HidReportEncoder {
                 listOf(
                     HidPacket(
                         BluetoothHidDescriptor.MOUSE_REPORT_ID,
-                        byteArrayOf(currentMouseButtons.toByte(), scrollReport[1], scrollReport[2], scrollReport[3], pan),
+                        mouseReport(
+                            buttons = currentMouseButtons,
+                            wheel = wheel,
+                            pan = pan,
+                        ),
                     ),
                 ),
             nextMouseButtons = currentMouseButtons,
@@ -424,4 +445,19 @@ object HidReportEncoder {
         }
 
     fun pointerDelta(value: Float): Byte = value.roundToInt().coerceIn(-127, 127).toByte()
+
+    private fun mouseReport(
+        buttons: Int,
+        deltaX: Byte = 0,
+        deltaY: Byte = 0,
+        wheel: Byte = 0,
+        pan: Byte = 0,
+    ): ByteArray =
+        byteArrayOf(
+            buttons.toByte(),
+            deltaX,
+            deltaY,
+            wheel,
+            pan,
+        )
 }
