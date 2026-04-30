@@ -111,6 +111,9 @@ class HidReportEncoderTest {
 
     @Test
     fun `keyboard encoding supports full keyboard aliases and modifiers`() {
+        assertEquals(0x04, HidCapabilityCatalog.keyUsage("A"))
+        assertEquals(0x0A, HidCapabilityCatalog.modifierBit("Shift")!! or HidCapabilityCatalog.modifierBit("Cmd")!!)
+
         val result =
             HidReportEncoder.encode(
                 InputAction.KeyComboAction(

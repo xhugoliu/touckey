@@ -50,6 +50,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import io.github.xhugoliu.touckey.input.InputAction
 import io.github.xhugoliu.touckey.input.MouseButton
+import io.github.xhugoliu.touckey.input.surface.BehaviorModifierMode
+import io.github.xhugoliu.touckey.input.surface.BehaviorReducer
+import io.github.xhugoliu.touckey.input.surface.BehaviorState
+import io.github.xhugoliu.touckey.input.surface.DefaultKeyboardKeySpec
+import io.github.xhugoliu.touckey.input.surface.DefaultSurfaceProfiles
+import io.github.xhugoliu.touckey.input.surface.SurfaceEvent
+import io.github.xhugoliu.touckey.input.surface.SurfaceZoneRole
 import io.github.xhugoliu.touckey.ui.theme.TouckeyTheme
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -71,6 +78,14 @@ fun ControlScreen(
     var activeHoldKeys by remember { mutableStateOf<List<String>>(emptyList()) }
     var showConnectionPanel by rememberSaveable { mutableStateOf(false) }
     val colorScheme = MaterialTheme.colorScheme
+    val defaultSurface = remember { DefaultSurfaceProfiles.defaultKeyboard() }
+    val keyboardRows =
+        remember(defaultSurface) {
+            DefaultSurfaceProfiles.keyboardRows(
+                layoutProfile = defaultSurface.layoutProfile,
+                keymapProfile = defaultSurface.keymapProfile,
+            )
+        }
 
     fun releaseHeldKeys() {
         if (modifierMode == ModifierMode.Hold && activeHoldKeys.isNotEmpty()) {
@@ -78,6 +93,26 @@ fun ControlScreen(
                 onInputAction(InputAction.KeyReleaseAction(key), false)
             }
             activeHoldKeys = emptyList()
+        }
+    }
+
+    fun dispatchKeyboardEvent(event: SurfaceEvent) {
+        val result =
+            BehaviorReducer.reduce(
+                event = event,
+                keymapProfile = defaultSurface.keymapProfile,
+                state =
+                    BehaviorState(
+                        modifierMode = modifierMode.toBehaviorModifierMode(),
+                        armedModifiers = armedModifiers,
+                        activeHoldKeys = activeHoldKeys,
+                    ),
+                pageId = DefaultSurfaceProfiles.KEYBOARD_PAGE_ID,
+            )
+        armedModifiers = result.nextState.armedModifiers
+        activeHoldKeys = result.nextState.activeHoldKeys
+        result.dispatch.actions.forEach { action ->
+            onInputAction(action, result.dispatch.shouldSurfaceResult)
         }
     }
 
@@ -115,33 +150,40 @@ fun ControlScreen(
                 vertical = if (isPortraitLayout) 10.dp else contentVerticalPadding,
             )
 
-        val onKeyboardPresetModifierToggle: (String) -> Unit = { modifierName ->
+        val onKeyboardZoneTap: (String) -> Unit = { zoneId ->
             if (uiState.isInputEnabled) {
-                armedModifiers = toggleArmedModifier(armedModifiers, modifierName)
-            }
-        }
-        val onKeyboardHoldPress: (String) -> Unit = { keyName ->
-            if (uiState.isInputEnabled && keyName !in activeHoldKeys) {
-                activeHoldKeys = activeHoldKeys + keyName
-                onInputAction(InputAction.KeyPressAction(keyName), false)
-            }
-        }
-        val onKeyboardHoldRelease: (String) -> Unit = { keyName ->
-            if (keyName in activeHoldKeys) {
-                activeHoldKeys = activeHoldKeys - keyName
-                onInputAction(InputAction.KeyReleaseAction(keyName), false)
-            }
-        }
-        val onKeyboardTap: (KeyboardKeySpec) -> Unit = { key ->
-            if (uiState.isInputEnabled) {
-                onInputAction(
-                    InputAction.KeyComboAction(
-                        keys = listOf(key.keyName),
-                        modifiers = armedModifiers,
+                dispatchKeyboardEvent(
+                    SurfaceEvent.ZoneTap(
+                        zoneId = zoneId,
+                        pointerId = 0,
+                        x = 0f,
+                        y = 0f,
                     ),
-                    false,
                 )
-                armedModifiers = modifiersAfterKeyTap(modifierMode, armedModifiers)
+            }
+        }
+        val onKeyboardZoneDown: (String) -> Unit = { zoneId ->
+            if (uiState.isInputEnabled) {
+                dispatchKeyboardEvent(
+                    SurfaceEvent.ZoneDown(
+                        zoneId = zoneId,
+                        pointerId = 0,
+                        x = 0f,
+                        y = 0f,
+                    ),
+                )
+            }
+        }
+        val onKeyboardZoneUp: (String) -> Unit = { zoneId ->
+            if (uiState.isInputEnabled) {
+                dispatchKeyboardEvent(
+                    SurfaceEvent.ZoneUp(
+                        zoneId = zoneId,
+                        pointerId = 0,
+                        x = 0f,
+                        y = 0f,
+                    ),
+                )
             }
         }
 
@@ -218,13 +260,13 @@ fun ControlScreen(
                             )
                             KeyboardPage(
                                 enabled = uiState.isInputEnabled,
+                                keyRows = keyboardRows,
                                 modifierMode = modifierMode,
                                 activePresetModifiers = armedModifiers,
                                 activeHoldKeys = activeHoldKeys,
-                                onPresetModifierToggle = onKeyboardPresetModifierToggle,
-                                onHoldKeyPress = onKeyboardHoldPress,
-                                onHoldKeyRelease = onKeyboardHoldRelease,
-                                onKeyTap = onKeyboardTap,
+                                onZoneTap = onKeyboardZoneTap,
+                                onZoneDown = onKeyboardZoneDown,
+                                onZoneUp = onKeyboardZoneUp,
                                 compact = true,
                                 modifier =
                                     Modifier
@@ -237,13 +279,13 @@ fun ControlScreen(
                             ControlPage.Keyboard ->
                                 KeyboardPage(
                                     enabled = uiState.isInputEnabled,
+                                    keyRows = keyboardRows,
                                     modifierMode = modifierMode,
                                     activePresetModifiers = armedModifiers,
                                     activeHoldKeys = activeHoldKeys,
-                                    onPresetModifierToggle = onKeyboardPresetModifierToggle,
-                                    onHoldKeyPress = onKeyboardHoldPress,
-                                    onHoldKeyRelease = onKeyboardHoldRelease,
-                                    onKeyTap = onKeyboardTap,
+                                    onZoneTap = onKeyboardZoneTap,
+                                    onZoneDown = onKeyboardZoneDown,
+                                    onZoneUp = onKeyboardZoneUp,
                                     modifier =
                                         Modifier
                                             .fillMaxSize()
@@ -706,17 +748,16 @@ private fun CornerButton(
 @Composable
 private fun KeyboardPage(
     enabled: Boolean,
+    keyRows: List<List<DefaultKeyboardKeySpec>>,
     modifierMode: ModifierMode,
     activePresetModifiers: List<String>,
     activeHoldKeys: List<String>,
-    onPresetModifierToggle: (String) -> Unit,
-    onHoldKeyPress: (String) -> Unit,
-    onHoldKeyRelease: (String) -> Unit,
-    onKeyTap: (KeyboardKeySpec) -> Unit,
+    onZoneTap: (String) -> Unit,
+    onZoneDown: (String) -> Unit,
+    onZoneUp: (String) -> Unit,
     compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val keyRows = keyboardRows
     val keyboardShape = RoundedCornerShape(if (compact) 20.dp else 28.dp)
     val keyGridSpacing = if (compact) 4.dp else 8.dp
     val keyboardPadding = if (compact) 6.dp else 12.dp
@@ -749,10 +790,9 @@ private fun KeyboardPage(
                             modifierMode = modifierMode,
                             activePresetModifiers = activePresetModifiers,
                             activeHoldKeys = activeHoldKeys,
-                            onPresetModifierToggle = onPresetModifierToggle,
-                            onHoldKeyPress = onHoldKeyPress,
-                            onHoldKeyRelease = onHoldKeyRelease,
-                            onKeyTap = onKeyTap,
+                            onZoneTap = onZoneTap,
+                            onZoneDown = onZoneDown,
+                            onZoneUp = onZoneUp,
                             compact = compact,
                         )
                     }
@@ -764,21 +804,20 @@ private fun KeyboardPage(
 
 @Composable
 private fun RowScope.KeyboardKey(
-    spec: KeyboardKeySpec,
+    spec: DefaultKeyboardKeySpec,
     enabled: Boolean,
     modifierMode: ModifierMode,
     activePresetModifiers: List<String>,
     activeHoldKeys: List<String>,
-    onPresetModifierToggle: (String) -> Unit,
-    onHoldKeyPress: (String) -> Unit,
-    onHoldKeyRelease: (String) -> Unit,
-    onKeyTap: (KeyboardKeySpec) -> Unit,
+    onZoneTap: (String) -> Unit,
+    onZoneDown: (String) -> Unit,
+    onZoneUp: (String) -> Unit,
     compact: Boolean,
 ) {
-    var activeHoldPointerId by remember(spec.keyName, modifierMode) { mutableStateOf<Int?>(null) }
+    var activeHoldPointerId by remember(spec.zoneId, modifierMode) { mutableStateOf<Int?>(null) }
     val colorScheme = MaterialTheme.colorScheme
     val isHoldPressed = modifierMode == ModifierMode.Hold && activeHoldKeys.contains(spec.keyName)
-    val isModifierArmed = modifierMode == ModifierMode.Preset && spec.kind == KeyboardKeyKind.Modifier && activePresetModifiers.contains(spec.keyName)
+    val isModifierArmed = modifierMode == ModifierMode.Preset && spec.role == SurfaceZoneRole.Modifier && activePresetModifiers.contains(spec.keyName)
     val activeShift =
         when (modifierMode) {
             ModifierMode.Preset -> activePresetModifiers.contains("Shift")
@@ -790,9 +829,9 @@ private fun RowScope.KeyboardKey(
         when {
             !enabled -> colorScheme.surfaceVariant
             isHoldPressed || isModifierArmed -> colorScheme.primary
-            spec.kind == KeyboardKeyKind.Function -> colorScheme.surfaceVariant
-            spec.kind == KeyboardKeyKind.Navigation -> colorScheme.background
-            spec.kind == KeyboardKeyKind.System -> colorScheme.surfaceVariant
+            spec.role == SurfaceZoneRole.Function -> colorScheme.surfaceVariant
+            spec.role == SurfaceZoneRole.Navigation -> colorScheme.background
+            spec.role == SurfaceZoneRole.System -> colorScheme.surfaceVariant
             else -> colorScheme.surface
         }
     val borderColor =
@@ -837,10 +876,10 @@ private fun RowScope.KeyboardKey(
                                     )
 
                                 if (transition.shouldPress) {
-                                    onHoldKeyPress(spec.keyName)
+                                    onZoneDown(spec.zoneId)
                                 }
                                 if (transition.shouldRelease) {
-                                    onHoldKeyRelease(spec.keyName)
+                                    onZoneUp(spec.zoneId)
                                 }
                                 activeHoldPointerId = transition.nextPointerId
                                 activeHoldPointerId != null || transition.shouldRelease
@@ -852,10 +891,7 @@ private fun RowScope.KeyboardKey(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                         ) {
-                            when (spec.kind) {
-                                KeyboardKeyKind.Modifier -> onPresetModifierToggle(spec.keyName)
-                                else -> onKeyTap(spec)
-                            }
+                            onZoneTap(spec.zoneId)
                         }
                     }
                 )
@@ -1186,117 +1222,12 @@ private enum class TouchpadMode {
     TwoFingerScroll,
 }
 
-private enum class KeyboardKeyKind {
-    Character,
-    Modifier,
-    Function,
-    Navigation,
-    System,
-}
+private fun ModifierMode.toBehaviorModifierMode(): BehaviorModifierMode =
+    when (this) {
+        ModifierMode.Preset -> BehaviorModifierMode.Preset
+        ModifierMode.Hold -> BehaviorModifierMode.Hold
+    }
 
-private data class KeyboardKeySpec(
-    val keyName: String,
-    val label: String,
-    val weight: Float = 1f,
-    val kind: KeyboardKeyKind = KeyboardKeyKind.Character,
-    val shiftLabel: String? = null,
-)
-
-private fun KeyboardKeySpec.displayLabel(shiftActive: Boolean): String = if (shiftActive) shiftLabel ?: label else label
-
-private val keyboardRows =
-    listOf(
-        listOf(
-            KeyboardKeySpec("Escape", "Esc", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F1", "F1", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F2", "F2", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F3", "F3", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F4", "F4", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F5", "F5", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F6", "F6", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F7", "F7", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F8", "F8", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F9", "F9", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F10", "F10", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F11", "F11", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("F12", "F12", kind = KeyboardKeyKind.Function),
-            KeyboardKeySpec("Home", "Home", kind = KeyboardKeyKind.Navigation),
-            KeyboardKeySpec("End", "End", kind = KeyboardKeyKind.Navigation),
-            KeyboardKeySpec("PageUp", "PgUp", kind = KeyboardKeyKind.Navigation),
-            KeyboardKeySpec("PageDown", "PgDn", kind = KeyboardKeyKind.Navigation),
-            KeyboardKeySpec("Delete", "Delete", kind = KeyboardKeyKind.Navigation),
-        ),
-        listOf(
-            KeyboardKeySpec("Grave", "`", shiftLabel = "~"),
-            KeyboardKeySpec("1", "1", shiftLabel = "!"),
-            KeyboardKeySpec("2", "2", shiftLabel = "@"),
-            KeyboardKeySpec("3", "3", shiftLabel = "#"),
-            KeyboardKeySpec("4", "4", shiftLabel = "$"),
-            KeyboardKeySpec("5", "5", shiftLabel = "%"),
-            KeyboardKeySpec("6", "6", shiftLabel = "^"),
-            KeyboardKeySpec("7", "7", shiftLabel = "&"),
-            KeyboardKeySpec("8", "8", shiftLabel = "*"),
-            KeyboardKeySpec("9", "9", shiftLabel = "("),
-            KeyboardKeySpec("0", "0", shiftLabel = ")"),
-            KeyboardKeySpec("Minus", "-", shiftLabel = "_"),
-            KeyboardKeySpec("Equal", "=", shiftLabel = "+"),
-            KeyboardKeySpec("Backspace", "Backspace", weight = 1.8f, kind = KeyboardKeyKind.Navigation),
-        ),
-        listOf(
-            KeyboardKeySpec("Tab", "Tab", weight = 1.4f, kind = KeyboardKeyKind.Navigation),
-            KeyboardKeySpec("Q", "q", shiftLabel = "Q"),
-            KeyboardKeySpec("W", "w", shiftLabel = "W"),
-            KeyboardKeySpec("E", "e", shiftLabel = "E"),
-            KeyboardKeySpec("R", "r", shiftLabel = "R"),
-            KeyboardKeySpec("T", "t", shiftLabel = "T"),
-            KeyboardKeySpec("Y", "y", shiftLabel = "Y"),
-            KeyboardKeySpec("U", "u", shiftLabel = "U"),
-            KeyboardKeySpec("I", "i", shiftLabel = "I"),
-            KeyboardKeySpec("O", "o", shiftLabel = "O"),
-            KeyboardKeySpec("P", "p", shiftLabel = "P"),
-            KeyboardKeySpec("LeftBracket", "[", shiftLabel = "{"),
-            KeyboardKeySpec("RightBracket", "]", shiftLabel = "}"),
-            KeyboardKeySpec("Backslash", "\\", shiftLabel = "|"),
-        ),
-        listOf(
-            KeyboardKeySpec("CapsLock", "Caps", weight = 1.8f, kind = KeyboardKeyKind.System),
-            KeyboardKeySpec("A", "a", shiftLabel = "A"),
-            KeyboardKeySpec("S", "s", shiftLabel = "S"),
-            KeyboardKeySpec("D", "d", shiftLabel = "D"),
-            KeyboardKeySpec("F", "f", shiftLabel = "F"),
-            KeyboardKeySpec("G", "g", shiftLabel = "G"),
-            KeyboardKeySpec("H", "h", shiftLabel = "H"),
-            KeyboardKeySpec("J", "j", shiftLabel = "J"),
-            KeyboardKeySpec("K", "k", shiftLabel = "K"),
-            KeyboardKeySpec("L", "l", shiftLabel = "L"),
-            KeyboardKeySpec("Semicolon", ";", shiftLabel = ":"),
-            KeyboardKeySpec("Quote", "'", shiftLabel = "\""),
-            KeyboardKeySpec("Enter", "Enter", weight = 2f, kind = KeyboardKeyKind.Navigation),
-        ),
-        listOf(
-            KeyboardKeySpec("Shift", "Shift", weight = 1.6f, kind = KeyboardKeyKind.Modifier),
-            KeyboardKeySpec("Z", "z", shiftLabel = "Z"),
-            KeyboardKeySpec("X", "x", shiftLabel = "X"),
-            KeyboardKeySpec("C", "c", shiftLabel = "C"),
-            KeyboardKeySpec("V", "v", shiftLabel = "V"),
-            KeyboardKeySpec("B", "b", shiftLabel = "B"),
-            KeyboardKeySpec("N", "n", shiftLabel = "N"),
-            KeyboardKeySpec("M", "m", shiftLabel = "M"),
-            KeyboardKeySpec("Comma", ",", shiftLabel = "<"),
-            KeyboardKeySpec("Period", ".", shiftLabel = ">"),
-            KeyboardKeySpec("Slash", "/", shiftLabel = "?"),
-            KeyboardKeySpec("Up", "Up", kind = KeyboardKeyKind.Navigation),
-        ),
-        listOf(
-            KeyboardKeySpec("Ctrl", "Ctrl", weight = 1.2f, kind = KeyboardKeyKind.Modifier),
-            KeyboardKeySpec("Cmd", "Cmd", weight = 1.2f, kind = KeyboardKeyKind.Modifier),
-            KeyboardKeySpec("Alt", "Alt", weight = 1.2f, kind = KeyboardKeyKind.Modifier),
-            KeyboardKeySpec("Space", "Space", weight = 4.2f, kind = KeyboardKeyKind.System),
-            KeyboardKeySpec("Left", "Left", kind = KeyboardKeyKind.Navigation),
-            KeyboardKeySpec("Down", "Down", kind = KeyboardKeyKind.Navigation),
-            KeyboardKeySpec("Right", "Right", kind = KeyboardKeyKind.Navigation),
-        ),
-    )
 
 @Preview(widthDp = 1280, heightDp = 720)
 @Composable
