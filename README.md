@@ -1,6 +1,6 @@
 # Touckey
 
-Touckey 是一个 Android 应用，可将手机变成面向桌面系统的蓝牙键盘与触摸板。
+Touckey 是一个 Android 应用，可将手机变成面向桌面系统的可编程触屏输入表面，并通过标准 Bluetooth HID 输出键盘、鼠标和媒体控制。
 
 ## 文档
 
