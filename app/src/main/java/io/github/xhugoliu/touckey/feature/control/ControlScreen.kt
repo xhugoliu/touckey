@@ -54,6 +54,7 @@ import io.github.xhugoliu.touckey.input.surface.BehaviorModifierMode
 import io.github.xhugoliu.touckey.input.surface.BehaviorReducer
 import io.github.xhugoliu.touckey.input.surface.BehaviorState
 import io.github.xhugoliu.touckey.input.surface.DefaultKeyboardKeySpec
+import io.github.xhugoliu.touckey.input.surface.DefaultSurfaceProfileSet
 import io.github.xhugoliu.touckey.input.surface.DefaultSurfaceProfiles
 import io.github.xhugoliu.touckey.input.surface.SurfaceEvent
 import io.github.xhugoliu.touckey.input.surface.SurfaceZoneRole
@@ -65,10 +66,13 @@ import kotlin.math.roundToInt
 @Composable
 fun ControlScreen(
     uiState: ControlUiState,
+    surfaceProfileSet: DefaultSurfaceProfileSet,
     snackbarHost: @Composable () -> Unit,
     onInputAction: (InputAction, Boolean) -> Unit,
     onEnvironmentActionTap: (ControlEnvironmentActionId) -> Unit,
     onConnectionActionTap: (ControlConnectionAction) -> Unit,
+    onSurfaceProfileSave: (List<List<DefaultKeyboardKeySpec>>) -> Unit,
+    onSurfaceProfileReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var currentRoute by rememberSaveable { mutableStateOf(ControlRoute.Console) }
@@ -78,12 +82,11 @@ fun ControlScreen(
     var activeHoldKeys by remember { mutableStateOf<List<String>>(emptyList()) }
     var showConnectionPanel by rememberSaveable { mutableStateOf(false) }
     val colorScheme = MaterialTheme.colorScheme
-    val defaultSurface = remember { DefaultSurfaceProfiles.defaultKeyboard() }
     val keyboardRows =
-        remember(defaultSurface) {
+        remember(surfaceProfileSet) {
             DefaultSurfaceProfiles.keyboardRows(
-                layoutProfile = defaultSurface.layoutProfile,
-                keymapProfile = defaultSurface.keymapProfile,
+                layoutProfile = surfaceProfileSet.layoutProfile,
+                keymapProfile = surfaceProfileSet.keymapProfile,
             )
         }
 
@@ -100,7 +103,7 @@ fun ControlScreen(
         val result =
             BehaviorReducer.reduce(
                 event = event,
-                keymapProfile = defaultSurface.keymapProfile,
+                keymapProfile = surfaceProfileSet.keymapProfile,
                 state =
                     BehaviorState(
                         modifierMode = modifierMode.toBehaviorModifierMode(),
@@ -310,11 +313,14 @@ fun ControlScreen(
                 ControlRoute.Settings ->
                     SettingsScreen(
                         modifierMode = modifierMode,
+                        layoutProfileSet = surfaceProfileSet,
                         onModifierModeSelected = { mode ->
                             releaseHeldKeys()
                             armedModifiers = emptyList()
                             modifierMode = mode
                         },
+                        onLayoutProfileSave = onSurfaceProfileSave,
+                        onLayoutProfileReset = onSurfaceProfileReset,
                         onBackTap = {
                             releaseHeldKeys()
                             armedModifiers = emptyList()
@@ -1228,7 +1234,6 @@ private fun ModifierMode.toBehaviorModifierMode(): BehaviorModifierMode =
         ModifierMode.Hold -> BehaviorModifierMode.Hold
     }
 
-
 @Preview(widthDp = 1280, heightDp = 720)
 @Composable
 private fun ControlScreenPreview() {
@@ -1265,10 +1270,13 @@ private fun ControlScreenPreview() {
                     setupPrompt = null,
                     isInputEnabled = true,
                 ),
+            surfaceProfileSet = DefaultSurfaceProfiles.defaultKeyboard(),
             snackbarHost = {},
             onInputAction = { _, _ -> },
             onEnvironmentActionTap = {},
             onConnectionActionTap = {},
+            onSurfaceProfileSave = {},
+            onSurfaceProfileReset = {},
         )
     }
 }

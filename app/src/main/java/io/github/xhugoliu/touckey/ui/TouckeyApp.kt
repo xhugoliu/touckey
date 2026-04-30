@@ -21,12 +21,14 @@ fun TouckeyApp(
 ) {
     val presenter = remember(appContainer) { appContainer.controlPresenter }
     val sessionSnapshot by appContainer.sessionController.snapshots.collectAsStateWithLifecycle()
+    val surfaceProfileSet by appContainer.userSurfaceProfileStore.profileSet.collectAsStateWithLifecycle()
     val uiState = remember(sessionSnapshot, presenter) { presenter.buildUiState(sessionSnapshot = sessionSnapshot) }
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
 
     ControlScreen(
         uiState = uiState,
+        surfaceProfileSet = surfaceProfileSet,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         onInputAction = { action, shouldSurfaceResult ->
             val result = presenter.dispatch(action)
@@ -44,6 +46,18 @@ fun TouckeyApp(
         onConnectionActionTap = { action ->
             coroutineScope.launch {
                 snackbarHostState.showSnackbar(onConnectionAction(action))
+            }
+        },
+        onSurfaceProfileSave = { rows ->
+            val message = appContainer.userSurfaceProfileStore.saveKeyboardRows(rows)
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(message)
+            }
+        },
+        onSurfaceProfileReset = {
+            val message = appContainer.userSurfaceProfileStore.resetKeyboardRows()
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(message)
             }
         },
     )
