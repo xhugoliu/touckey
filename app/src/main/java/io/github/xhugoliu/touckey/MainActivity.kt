@@ -3,7 +3,6 @@ package io.github.xhugoliu.touckey
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
-import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -151,12 +150,8 @@ class MainActivity : ComponentActivity() {
         configureDisplayCutoutMode()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView)?.apply {
-            if (isPortraitOrientation()) {
-                show(WindowInsetsCompat.Type.systemBars())
-            } else {
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                hide(WindowInsetsCompat.Type.systemBars())
-            }
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -175,6 +170,4 @@ class MainActivity : ComponentActivity() {
         window.attributes = params
     }
 
-    private fun isPortraitOrientation(): Boolean =
-        resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 }

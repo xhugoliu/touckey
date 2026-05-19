@@ -36,7 +36,7 @@ class SurfaceRuntimeTest {
             profile(
                 variants =
                     listOf(
-                        variant("landscape", SurfaceOrientation.Landscape),
+                        variant("compact-landscape", SurfaceOrientation.Landscape, viewportClass = ViewportClass.Compact),
                         variant("any", SurfaceOrientation.Any),
                     ),
             )
@@ -46,7 +46,7 @@ class SurfaceRuntimeTest {
                 layoutProfile = profile,
                 pageId = "page",
                 viewportClass = ViewportClass.Expanded,
-                orientation = SurfaceOrientation.Portrait,
+                orientation = SurfaceOrientation.Landscape,
             )
 
         assertEquals("any", selection.variant.id)
@@ -59,7 +59,6 @@ class SurfaceRuntimeTest {
             profile(
                 variants =
                     listOf(
-                        variant("seed-b", SurfaceOrientation.Portrait, viewportClass = ViewportClass.Expanded),
                         variant("seed-a", SurfaceOrientation.Landscape, viewportClass = ViewportClass.Expanded),
                     ),
             )
@@ -69,10 +68,10 @@ class SurfaceRuntimeTest {
                 layoutProfile = profile,
                 pageId = "page",
                 viewportClass = ViewportClass.Compact,
-                orientation = SurfaceOrientation.Portrait,
+                orientation = SurfaceOrientation.Landscape,
             )
 
-        assertEquals("seed-a-generated-compact-portrait", selection.variant.id)
+        assertEquals("seed-a-generated-compact-landscape", selection.variant.id)
         assertTrue(selection.variant.generated)
         assertTrue(selection.variant.readOnly)
         assertEquals(

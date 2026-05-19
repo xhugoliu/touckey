@@ -19,7 +19,6 @@ enum class ViewportClass {
 }
 
 enum class SurfaceOrientation {
-    Portrait,
     Landscape,
     Any,
 }

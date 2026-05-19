@@ -6,15 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -54,88 +52,99 @@ fun SettingsScreen(
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
-    BoxWithConstraints(
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier =
             modifier
                 .fillMaxSize()
-                .background(colorScheme.background),
+                .background(colorScheme.background)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
-        val portraitInsets =
-            if (maxHeight > maxWidth) {
-                Modifier
-                    .displayCutoutPadding()
-                    .systemBarsPadding()
-            } else {
-                Modifier
-            }
-
-        Column(
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .then(portraitInsets)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                ControlActionChip(
-                    label = "Back",
-                    selected = false,
-                    onTap = onBackTap,
-                )
-                Text(
-                    text = "Settings",
-                    color = colorScheme.onBackground,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Box(modifier = Modifier.padding(horizontal = 22.dp))
-            }
+            ControlActionChip(
+                label = "Back",
+                selected = false,
+                onTap = onBackTap,
+            )
+            Text(
+                text = "Settings",
+                color = colorScheme.onBackground,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Box(modifier = Modifier.padding(horizontal = 22.dp))
+        }
 
-            Surface(
-                color = colorScheme.surface,
-                shape = RoundedCornerShape(28.dp),
-                tonalElevation = 0.dp,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 20.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            text = "Keyboard touch mode",
-                            color = colorScheme.onSurface,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Choose between one-shot preset shortcuts and real press-and-release keyboard touches.",
-                            color = colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
-
-                    ModifierMode.entries.forEach { mode ->
-                        ModifierModeCard(
-                            mode = mode,
-                            selected = modifierMode == mode,
-                            onTap = { onModifierModeSelected(mode) },
-                        )
-                    }
-                }
-            }
-
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SettingsModeCard(
+                modifierMode = modifierMode,
+                onModifierModeSelected = onModifierModeSelected,
+                modifier =
+                    Modifier
+                        .weight(0.82f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+            )
             LayoutProfileCard(
                 layoutProfileSet = layoutProfileSet,
                 onSave = onLayoutProfileSave,
                 onReset = onLayoutProfileReset,
+                modifier =
+                    Modifier
+                        .weight(1.18f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
             )
+        }
+    }
+}
+
+@Composable
+private fun SettingsModeCard(
+    modifierMode: ModifierMode,
+    onModifierModeSelected: (ModifierMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    Surface(
+        color = colorScheme.surface,
+        shape = RoundedCornerShape(28.dp),
+        tonalElevation = 0.dp,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 20.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Keyboard touch mode",
+                    color = colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Choose between one-shot preset shortcuts and real press-and-release keyboard touches.",
+                    color = colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            ModifierMode.entries.forEach { mode ->
+                ModifierModeCard(
+                    mode = mode,
+                    selected = modifierMode == mode,
+                    onTap = { onModifierModeSelected(mode) },
+                )
+            }
         }
     }
 }
@@ -145,6 +154,7 @@ private fun LayoutProfileCard(
     layoutProfileSet: DefaultSurfaceProfileSet,
     onSave: (List<List<DefaultKeyboardKeySpec>>) -> Unit,
     onReset: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val layoutProfile = layoutProfileSet.layoutProfile
@@ -201,7 +211,7 @@ private fun LayoutProfileCard(
         color = colorScheme.surface,
         shape = RoundedCornerShape(28.dp),
         tonalElevation = 0.dp,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),

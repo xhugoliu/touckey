@@ -135,8 +135,7 @@ object SurfaceRuntime {
         get() =
             when (this) {
                 SurfaceOrientation.Any -> 0
-                SurfaceOrientation.Portrait -> 1
-                SurfaceOrientation.Landscape -> 2
+                SurfaceOrientation.Landscape -> 1
             }
 }
 

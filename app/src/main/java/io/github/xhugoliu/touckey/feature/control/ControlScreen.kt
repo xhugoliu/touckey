@@ -12,13 +12,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.shape.CircleShape
@@ -136,21 +134,12 @@ fun ControlScreen(
                 ),
     ) {
         val isCompactLayout = maxWidth < 720.dp
-        val isPortraitLayout = maxHeight > maxWidth
         val contentHorizontalPadding = if (isCompactLayout) 12.dp else 24.dp
         val contentVerticalPadding = if (isCompactLayout) 12.dp else 20.dp
-        val portraitChromeInsets =
-            if (isPortraitLayout) {
-                Modifier
-                    .displayCutoutPadding()
-                    .systemBarsPadding()
-            } else {
-                Modifier
-            }
         val consoleContentPadding =
             Modifier.padding(
                 horizontal = contentHorizontalPadding,
-                vertical = if (isPortraitLayout) 10.dp else contentVerticalPadding,
+                vertical = contentVerticalPadding,
             )
 
         val onKeyboardZoneTap: (String) -> Unit = { zoneId ->
@@ -201,7 +190,6 @@ fun ControlScreen(
                         currentPage = currentPage,
                         connection = uiState.connection,
                         compact = isCompactLayout,
-                        showPageTabs = !isPortraitLayout,
                         onPageSelected = { page ->
                             currentPage = page
                             releaseHeldKeys()
@@ -221,7 +209,6 @@ fun ControlScreen(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .then(portraitChromeInsets)
                                 .padding(horizontal = if (isCompactLayout) 12.dp else 16.dp, vertical = 12.dp),
                     )
                 }
@@ -236,7 +223,6 @@ fun ControlScreen(
                                 Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = if (isCompactLayout) 12.dp else 20.dp, vertical = 12.dp)
-                                    .then(portraitChromeInsets),
                         )
                     }
                 }
@@ -244,23 +230,8 @@ fun ControlScreen(
         ) { innerPadding ->
             when (currentRoute) {
                 ControlRoute.Console -> {
-                    if (isPortraitLayout) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .padding(innerPadding)
-                                    .then(consoleContentPadding),
-                        ) {
-                            TouchpadPage(
-                                enabled = uiState.isInputEnabled,
-                                onTouchpadAction = onInputAction,
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .weight(0.60f),
-                            )
+                    when (currentPage) {
+                        ControlPage.Keyboard ->
                             KeyboardPage(
                                 enabled = uiState.isInputEnabled,
                                 keyRows = keyboardRows,
@@ -270,43 +241,23 @@ fun ControlScreen(
                                 onZoneTap = onKeyboardZoneTap,
                                 onZoneDown = onKeyboardZoneDown,
                                 onZoneUp = onKeyboardZoneUp,
-                                compact = true,
                                 modifier =
                                     Modifier
-                                        .fillMaxWidth()
-                                        .weight(0.40f),
+                                        .fillMaxSize()
+                                        .padding(innerPadding)
+                                        .then(consoleContentPadding),
                             )
-                        }
-                    } else {
-                        when (currentPage) {
-                            ControlPage.Keyboard ->
-                                KeyboardPage(
-                                    enabled = uiState.isInputEnabled,
-                                    keyRows = keyboardRows,
-                                    modifierMode = modifierMode,
-                                    activePresetModifiers = armedModifiers,
-                                    activeHoldKeys = activeHoldKeys,
-                                    onZoneTap = onKeyboardZoneTap,
-                                    onZoneDown = onKeyboardZoneDown,
-                                    onZoneUp = onKeyboardZoneUp,
-                                    modifier =
-                                        Modifier
-                                            .fillMaxSize()
-                                            .padding(innerPadding)
-                                            .then(consoleContentPadding),
-                                )
 
-                            ControlPage.Touchpad ->
-                                TouchpadPage(
-                                    enabled = uiState.isInputEnabled,
-                                    onTouchpadAction = onInputAction,
-                                    modifier =
-                                        Modifier
-                                            .fillMaxSize()
-                                            .padding(innerPadding)
-                                            .then(consoleContentPadding),
-                                )
-                        }
+                        ControlPage.Touchpad ->
+                            TouchpadPage(
+                                enabled = uiState.isInputEnabled,
+                                onTouchpadAction = onInputAction,
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding)
+                                        .then(consoleContentPadding),
+                            )
                     }
                 }
 
@@ -391,7 +342,6 @@ private fun CornerChrome(
     currentPage: ControlPage,
     connection: ControlConnectionUiState,
     compact: Boolean,
-    showPageTabs: Boolean,
     onPageSelected: (ControlPage) -> Unit,
     onSettingsTap: () -> Unit,
     onConnectionTap: () -> Unit,
@@ -422,15 +372,13 @@ private fun CornerChrome(
                 )
             }
 
-            if (showPageTabs) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ControlPage.entries.forEach { page ->
-                        CornerButton(
-                            label = page.label,
-                            emphasized = currentPage == page,
-                            onTap = { onPageSelected(page) },
-                        )
-                    }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ControlPage.entries.forEach { page ->
+                    CornerButton(
+                        label = page.label,
+                        emphasized = currentPage == page,
+                        onTap = { onPageSelected(page) },
+                    )
                 }
             }
         }
@@ -462,15 +410,13 @@ private fun CornerChrome(
                 }
             }
 
-            if (showPageTabs) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ControlPage.entries.forEach { page ->
-                        CornerButton(
-                            label = page.label,
-                            emphasized = currentPage == page,
-                            onTap = { onPageSelected(page) },
-                        )
-                    }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ControlPage.entries.forEach { page ->
+                    CornerButton(
+                        label = page.label,
+                        emphasized = currentPage == page,
+                        onTap = { onPageSelected(page) },
+                    )
                 }
             }
         }
