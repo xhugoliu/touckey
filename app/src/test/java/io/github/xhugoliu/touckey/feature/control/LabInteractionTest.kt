@@ -1,5 +1,6 @@
 package io.github.xhugoliu.touckey.feature.control
 
+import io.github.xhugoliu.touckey.input.InputAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,6 +88,27 @@ class LabInteractionTest {
     }
 
     @Test
+    fun `only ctrl shift alt and cmd are lockable modifiers`() {
+        assertTrue(isLockableModifier("Ctrl"))
+        assertTrue(isLockableModifier("Shift"))
+        assertTrue(isLockableModifier("Alt"))
+        assertTrue(isLockableModifier("Cmd"))
+        assertFalse(isLockableModifier("Enter"))
+        assertFalse(isLockableModifier("C"))
+    }
+
+    @Test
+    fun `locked modifiers preserve order and can be toggled off`() {
+        val first = toggleLockedModifier(emptyList(), "Ctrl")
+        val second = toggleLockedModifier(first, "Shift")
+        val removed = toggleLockedModifier(second, "Ctrl")
+
+        assertEquals(listOf("Ctrl"), first)
+        assertEquals(listOf("Ctrl", "Shift"), second)
+        assertEquals(listOf("Shift"), removed)
+    }
+
+    @Test
     fun `hold is interrupted only by a successful candidate move`() {
         val moved =
             applyLabGesture(
@@ -108,6 +130,109 @@ class LabInteractionTest {
         assertEquals(null, interruptedLabHoldKey("Enter", blocked))
         assertEquals("Enter", interruptedLabHoldKey("Enter", reset))
         assertEquals(null, interruptedLabHoldKey(null, moved))
+    }
+
+    @Test
+    fun `candidate move clears locked modifiers only when movement succeeds`() {
+        val moved =
+            applyLabGesture(
+                cell = LabCell(),
+                gesture = LabGesture.Right,
+            )
+        val blocked =
+            applyLabGesture(
+                cell = LabCell(row = 0, column = 4),
+                gesture = LabGesture.Right,
+            )
+
+        assertEquals(listOf("Ctrl", "Shift"), interruptedLockedModifiers(listOf("Ctrl", "Shift"), moved))
+        assertEquals(listOf("Ctrl", "Shift"), interruptedLockedModifiers(listOf("Ctrl", "Shift"), blocked))
+    }
+
+    @Test
+    fun `hold press and release actions include locked modifiers in order`() {
+        assertEquals(
+            listOf(
+                InputAction.KeyPressAction("Ctrl"),
+                InputAction.KeyPressAction("Shift"),
+                InputAction.KeyPressAction("Cmd"),
+            ),
+            labHoldPressActions(activeKey = "Cmd", lockedModifiers = listOf("Ctrl", "Shift")),
+        )
+        assertEquals(
+            listOf(
+                InputAction.KeyReleaseAction("Cmd"),
+                InputAction.KeyReleaseAction("Shift"),
+                InputAction.KeyReleaseAction("Ctrl"),
+            ),
+            labHoldReleaseActions(activeKey = "Cmd", lockedModifiers = listOf("Ctrl", "Shift")),
+        )
+    }
+
+    @Test
+    fun `state transition actions support independent left and right holds`() {
+        val previous =
+            listOf(
+                LabTriggerState(lockedModifiers = listOf("Ctrl"), activeHoldKey = "C"),
+                LabTriggerState(),
+            )
+        val next =
+            listOf(
+                LabTriggerState(lockedModifiers = listOf("Ctrl"), activeHoldKey = "C"),
+                LabTriggerState(lockedModifiers = listOf("Shift"), activeHoldKey = "M"),
+            )
+        val released =
+            listOf(
+                LabTriggerState(),
+                LabTriggerState(lockedModifiers = listOf("Shift"), activeHoldKey = "M"),
+            )
+
+        assertEquals(
+            listOf(
+                InputAction.KeyPressAction("Shift"),
+                InputAction.KeyPressAction("M"),
+            ),
+            labStateTransitionActions(previous, next),
+        )
+        assertEquals(
+            listOf(
+                InputAction.KeyReleaseAction("C"),
+                InputAction.KeyReleaseAction("Ctrl"),
+            ),
+            labStateTransitionActions(next, released),
+        )
+    }
+
+    @Test
+    fun `tap actions reuse hold press and release order`() {
+        assertEquals(
+            listOf<InputAction>(
+                InputAction.KeyPressAction("Ctrl"),
+                InputAction.KeyPressAction("C"),
+                InputAction.KeyReleaseAction("C"),
+                InputAction.KeyReleaseAction("Ctrl"),
+            ),
+            labTapActions(activeKey = "C", lockedModifiers = listOf("Ctrl")),
+        )
+    }
+
+    @Test
+    fun `promoting held modifier into locked modifier does not emit release`() {
+        val previous =
+            listOf(
+                LabTriggerState(activeHoldKey = "Ctrl"),
+                LabTriggerState(),
+            )
+        val next =
+            listOf(
+                LabTriggerState(lockedModifiers = listOf("Ctrl")),
+                LabTriggerState(),
+            )
+
+        assertEquals(
+            emptyList<InputAction>(),
+            labStateTransitionActions(previous, next),
+        )
     }
 
     @Test

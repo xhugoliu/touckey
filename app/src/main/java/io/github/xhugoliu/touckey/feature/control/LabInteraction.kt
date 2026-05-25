@@ -1,6 +1,7 @@
 package io.github.xhugoliu.touckey.feature.control
 
 import io.github.xhugoliu.touckey.hid.HidCapabilityCatalog
+import io.github.xhugoliu.touckey.input.InputAction
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -32,6 +33,11 @@ internal data class LabKeyBinding(
     val label: String,
 )
 
+internal data class LabTriggerState(
+    val lockedModifiers: List<String> = emptyList(),
+    val activeHoldKey: String? = null,
+)
+
 internal enum class LabGesture(
     val label: String,
     val rowDelta: Int,
@@ -60,6 +66,11 @@ internal fun interruptedLabHoldKey(
     heldKey: String?,
     move: LabCandidateMove,
 ): String? = if (heldKey != null && move.moved) heldKey else null
+
+internal fun interruptedLockedModifiers(
+    lockedModifiers: List<String>,
+    move: LabCandidateMove,
+): List<String> = lockedModifiers
 
 internal fun detectLabGesture(
     deltaX: Float,
@@ -154,6 +165,77 @@ internal fun labKeyBinding(
     cell: LabCell,
 ): LabKeyBinding = labKeyRows(side)[cell.row][cell.column]
 
+internal fun isLockableModifier(key: String): Boolean = key in LOCKABLE_MODIFIERS
+
+internal fun toggleLockedModifier(
+    lockedModifiers: List<String>,
+    key: String,
+): List<String> =
+    if (key in lockedModifiers) {
+        lockedModifiers - key
+    } else {
+        lockedModifiers + key
+    }
+
+internal fun labHoldPressActions(
+    activeKey: String,
+    lockedModifiers: List<String>,
+): List<InputAction.KeyPressAction> =
+    (lockedModifiers + activeKey)
+        .distinct()
+        .map { key -> InputAction.KeyPressAction(key) }
+
+internal fun labHoldReleaseActions(
+    activeKey: String,
+    lockedModifiers: List<String>,
+): List<InputAction.KeyReleaseAction> =
+    (lockedModifiers + activeKey)
+        .distinct()
+        .asReversed()
+        .map { key -> InputAction.KeyReleaseAction(key) }
+
+internal fun labTapActions(
+    activeKey: String,
+    lockedModifiers: List<String>,
+): List<InputAction> =
+    labHoldPressActions(activeKey, lockedModifiers) + labHoldReleaseActions(activeKey, lockedModifiers)
+
+internal fun LabTriggerState.activeKeys(): List<String> =
+    (lockedModifiers + listOfNotNull(activeHoldKey)).distinct()
+
+internal fun aggregateLabActiveKeys(states: List<LabTriggerState>): List<String> =
+    states.flatMap { state -> state.activeKeys() }.distinct()
+
+internal fun labStateTransitionActions(
+    previousStates: List<LabTriggerState>,
+    nextStates: List<LabTriggerState>,
+): List<InputAction> {
+    val previousKeys = aggregateLabActiveKeys(previousStates)
+    val nextKeys = aggregateLabActiveKeys(nextStates)
+    val presses =
+        nextKeys
+            .filterNot { key -> key in previousKeys }
+            .map { key -> InputAction.KeyPressAction(key) }
+    val releases =
+        previousKeys
+            .asReversed()
+            .filterNot { key -> key in nextKeys }
+            .map { key -> InputAction.KeyReleaseAction(key) }
+    return presses + releases
+}
+
+internal fun labTapActionsAgainstState(
+    activeKey: String,
+    lockedModifiers: List<String>,
+    currentlyPressedKeys: List<String>,
+): List<InputAction> {
+    val tapKeys = (lockedModifiers + activeKey).distinct()
+    val freshKeys = tapKeys.filterNot { key -> key in currentlyPressedKeys }
+    val presses = freshKeys.map { key -> InputAction.KeyPressAction(key) }
+    val releases = freshKeys.asReversed().map { key -> InputAction.KeyReleaseAction(key) }
+    return presses + releases
+}
+
 private fun labKeyRows(side: LabSide): List<List<LabKeyBinding>> =
     when (side) {
         LabSide.Left -> LEFT_LAB_KEY_ROWS
@@ -194,3 +276,5 @@ private fun String.labDisplayLabel(): String =
         "Control" -> "Ctrl"
         else -> this
     }
+
+private val LOCKABLE_MODIFIERS: Set<String> = setOf("Ctrl", "Shift", "Alt", "Cmd")

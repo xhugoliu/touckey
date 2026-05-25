@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +39,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.xhugoliu.touckey.input.InputAction
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun LabInteractionPage(
@@ -47,17 +51,44 @@ internal fun LabInteractionPage(
     val context = LocalContext.current
     val view = LocalView.current
     val touchSlop = remember { ViewConfiguration.get(context).scaledTouchSlop.toFloat() }
-    val tapSlopPx = remember(touchSlop) { touchSlop * 1.25f }
     val segmentPx = remember(touchSlop) { touchSlop * 1.9f }
+    val triggerLockDelayMillis = 2_000L
 
     var leftCandidate by remember { mutableStateOf(LabCell()) }
     var rightCandidate by remember { mutableStateOf(LabCell()) }
-    var leftHeldId by remember { mutableStateOf<String?>(null) }
-    var rightHeldId by remember { mutableStateOf<String?>(null) }
+    var leftTriggerState by remember { mutableStateOf(LabTriggerState()) }
+    var rightTriggerState by remember { mutableStateOf(LabTriggerState()) }
 
     fun pulse(pattern: LabHapticPattern) {
         pattern.constants.forEach { constant ->
             view.performHapticFeedback(constant)
+        }
+    }
+
+    fun triggerStateFor(side: LabSide): LabTriggerState =
+        when (side) {
+            LabSide.Left -> leftTriggerState
+            LabSide.Right -> rightTriggerState
+        }
+
+    fun setTriggerState(
+        side: LabSide,
+        state: LabTriggerState,
+    ) {
+        when (side) {
+            LabSide.Left -> leftTriggerState = state
+            LabSide.Right -> rightTriggerState = state
+        }
+    }
+
+    fun dispatchTransition(
+        update: () -> Unit,
+    ) {
+        val previousStates = listOf(leftTriggerState, rightTriggerState)
+        update()
+        val nextStates = listOf(leftTriggerState, rightTriggerState)
+        labStateTransitionActions(previousStates, nextStates).forEach { action ->
+            onInputAction(action, false)
         }
     }
 
@@ -77,19 +108,26 @@ internal fun LabInteractionPage(
         }
     }
 
-    fun heldIdFor(side: LabSide): String? =
-        when (side) {
-            LabSide.Left -> leftHeldId
-            LabSide.Right -> rightHeldId
-        }
-
-    fun setHeldId(
+    fun releaseHold(
         side: LabSide,
-        id: String?,
+        pulseFeedback: Boolean,
+        clearLocks: Boolean,
     ) {
-        when (side) {
-            LabSide.Left -> leftHeldId = id
-            LabSide.Right -> rightHeldId = id
+        val currentState = triggerStateFor(side)
+        if (currentState.activeHoldKey == null) {
+            return
+        }
+        dispatchTransition {
+            setTriggerState(
+                side,
+                currentState.copy(
+                    activeHoldKey = null,
+                    lockedModifiers = if (clearLocks) emptyList() else currentState.lockedModifiers,
+                ),
+            )
+        }
+        if (pulseFeedback) {
+            pulse(LabHapticPattern.HoldUp)
         }
     }
 
@@ -99,10 +137,15 @@ internal fun LabInteractionPage(
     ) {
         val current = candidateFor(side)
         val move = applyLabGesture(current, gesture)
-        val interruptedKey = interruptedLabHoldKey(heldIdFor(side), move)
+        val triggerState = triggerStateFor(side)
+        val interruptedKey = interruptedLabHoldKey(triggerState.activeHoldKey, move)
+        val nextLockedModifiers = interruptedLockedModifiers(triggerState.lockedModifiers, move)
 
         when {
             gesture == LabGesture.Tap -> {
+                if (nextLockedModifiers != triggerState.lockedModifiers) {
+                    setTriggerState(side, triggerState.copy(lockedModifiers = nextLockedModifiers))
+                }
                 setCandidate(side, move.nextCell)
                 pulse(LabHapticPattern.Reset)
             }
@@ -112,9 +155,13 @@ internal fun LabInteractionPage(
 
             move.moved -> {
                 interruptedKey?.let { key ->
-                    setHeldId(side, null)
-                    onInputAction(InputAction.KeyReleaseAction(key), false)
-                    pulse(LabHapticPattern.HoldUp)
+                    releaseHold(side, pulseFeedback = true, clearLocks = true)
+                }
+                if (nextLockedModifiers != triggerStateFor(side).lockedModifiers) {
+                    setTriggerState(
+                        side,
+                        triggerStateFor(side).copy(lockedModifiers = nextLockedModifiers),
+                    )
                 }
                 setCandidate(side, move.nextCell)
                 pulse(LabHapticPattern.OrthogonalMove)
@@ -122,21 +169,53 @@ internal fun LabInteractionPage(
         }
     }
 
-    fun onHoldDown(side: LabSide) {
-        if (heldIdFor(side) != null) {
+    fun onHoldDown(
+        side: LabSide,
+        binding: LabKeyBinding,
+    ) {
+        if (triggerStateFor(side).activeHoldKey != null) {
             return
         }
-        val binding = labKeyBinding(side, candidateFor(side))
-        setHeldId(side, binding.key)
-        onInputAction(InputAction.KeyPressAction(binding.key), false)
+        dispatchTransition {
+            setTriggerState(
+                side,
+                triggerStateFor(side).copy(activeHoldKey = binding.key),
+            )
+        }
         pulse(LabHapticPattern.HoldDown)
     }
 
+    fun onToggleLock(
+        side: LabSide,
+        binding: LabKeyBinding,
+    ) {
+        if (!isLockableModifier(binding.key)) {
+            return
+        }
+        dispatchTransition {
+            val currentState = triggerStateFor(side)
+            val nextLocked = toggleLockedModifier(currentState.lockedModifiers, binding.key)
+            setTriggerState(
+                side,
+                currentState.copy(
+                    lockedModifiers = nextLocked,
+                    activeHoldKey =
+                        if (currentState.activeHoldKey == binding.key && binding.key in nextLocked) {
+                            null
+                        } else {
+                            currentState.activeHoldKey
+                        },
+                ),
+            )
+        }
+        pulse(LabHapticPattern.LockToggle)
+    }
+
     fun onHoldUp(side: LabSide) {
-        val key = heldIdFor(side) ?: return
-        setHeldId(side, null)
-        onInputAction(InputAction.KeyReleaseAction(key), false)
-        pulse(LabHapticPattern.HoldUp)
+        if (triggerStateFor(side).activeHoldKey == null) {
+            return
+        }
+        releaseHold(side, pulseFeedback = true, clearLocks = true)
     }
 
     Row(
@@ -146,11 +225,14 @@ internal fun LabInteractionPage(
         LabSidePane(
             side = LabSide.Left,
             candidate = leftCandidate,
-            heldId = leftHeldId,
-            tapSlopPx = tapSlopPx,
+            activeHoldKey = leftTriggerState.activeHoldKey,
+            lockedModifiers = leftTriggerState.lockedModifiers,
+            triggerLockDelayMillis = triggerLockDelayMillis,
+            tapSlopPx = touchSlop * 1.25f,
             segmentPx = segmentPx,
             onGesture = { onGesture(LabSide.Left, it) },
-            onHoldDown = { onHoldDown(LabSide.Left) },
+            onHoldDown = { binding -> onHoldDown(LabSide.Left, binding) },
+            onToggleLock = { binding -> onToggleLock(LabSide.Left, binding) },
             onHoldUp = { onHoldUp(LabSide.Left) },
             modifier =
                 Modifier
@@ -160,11 +242,14 @@ internal fun LabInteractionPage(
         LabSidePane(
             side = LabSide.Right,
             candidate = rightCandidate,
-            heldId = rightHeldId,
-            tapSlopPx = tapSlopPx,
+            activeHoldKey = rightTriggerState.activeHoldKey,
+            lockedModifiers = rightTriggerState.lockedModifiers,
+            triggerLockDelayMillis = triggerLockDelayMillis,
+            tapSlopPx = touchSlop * 1.25f,
             segmentPx = segmentPx,
             onGesture = { onGesture(LabSide.Right, it) },
-            onHoldDown = { onHoldDown(LabSide.Right) },
+            onHoldDown = { binding -> onHoldDown(LabSide.Right, binding) },
+            onToggleLock = { binding -> onToggleLock(LabSide.Right, binding) },
             onHoldUp = { onHoldUp(LabSide.Right) },
             modifier =
                 Modifier
@@ -178,11 +263,14 @@ internal fun LabInteractionPage(
 private fun LabSidePane(
     side: LabSide,
     candidate: LabCell,
-    heldId: String?,
+    activeHoldKey: String?,
+    lockedModifiers: List<String>,
+    triggerLockDelayMillis: Long,
     tapSlopPx: Float,
     segmentPx: Float,
     onGesture: (LabGesture) -> Unit,
-    onHoldDown: () -> Unit,
+    onHoldDown: (LabKeyBinding) -> Unit,
+    onToggleLock: (LabKeyBinding) -> Unit,
     onHoldUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -192,9 +280,12 @@ private fun LabSidePane(
     ) {
         LabHoldZone(
             side = side,
-            candidateLabel = labKeyBinding(side, candidate).label,
-            heldId = heldId,
+            candidateBinding = labKeyBinding(side, candidate),
+            activeHoldKey = activeHoldKey,
+            lockedModifiers = lockedModifiers,
+            triggerLockDelayMillis = triggerLockDelayMillis,
             onHoldDown = onHoldDown,
+            onToggleLock = onToggleLock,
             onHoldUp = onHoldUp,
             modifier =
                 Modifier
@@ -204,6 +295,7 @@ private fun LabSidePane(
         LabMatrixZone(
             side = side,
             candidate = candidate,
+            lockedModifiers = lockedModifiers,
             tapSlopPx = tapSlopPx,
             segmentPx = segmentPx,
             onGesture = onGesture,
@@ -218,15 +310,34 @@ private fun LabSidePane(
 @Composable
 private fun LabHoldZone(
     side: LabSide,
-    candidateLabel: String,
-    heldId: String?,
-    onHoldDown: () -> Unit,
+    candidateBinding: LabKeyBinding,
+    activeHoldKey: String?,
+    lockedModifiers: List<String>,
+    triggerLockDelayMillis: Long,
+    onHoldDown: (LabKeyBinding) -> Unit,
+    onToggleLock: (LabKeyBinding) -> Unit,
     onHoldUp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var activePointerId by remember { mutableStateOf<Int?>(null) }
+    var activeHoldTriggered by remember { mutableStateOf(false) }
+    var lockTriggered by remember { mutableStateOf(false) }
     val colorScheme = MaterialTheme.colorScheme
-    val active = heldId != null
+    val coroutineScope = rememberCoroutineScope()
+    var lockJob by remember { mutableStateOf<Job?>(null) }
+    val active = activeHoldKey != null
+
+    fun cancelLockJob() {
+        lockJob?.cancel()
+        lockJob = null
+    }
+
+    fun resetPointerState() {
+        activePointerId = null
+        activeHoldTriggered = false
+        lockTriggered = false
+        cancelLockJob()
+    }
 
     Surface(
         color = if (active) colorScheme.primary else colorScheme.surface.copy(alpha = 0.94f),
@@ -240,25 +351,44 @@ private fun LabHoldZone(
                         -> {
                             if (activePointerId == null) {
                                 activePointerId = event.pointerIdAtAction()
-                                onHoldDown()
+                                activeHoldTriggered = false
+                                lockTriggered = false
+                                cancelLockJob()
+                                onHoldDown(candidateBinding)
+                                activeHoldTriggered = true
+                                lockJob =
+                                    coroutineScope.launch {
+                                        delay(triggerLockDelayMillis)
+                                        if (activePointerId != null && !lockTriggered && isLockableModifier(candidateBinding.key)) {
+                                            onToggleLock(candidateBinding)
+                                            lockTriggered = true
+                                            activeHoldTriggered = false
+                                        }
+                                    }
                             }
                             true
                         }
+
+                        MotionEvent.ACTION_MOVE -> true
 
                         MotionEvent.ACTION_UP,
                         MotionEvent.ACTION_CANCEL,
                         -> {
                             if (activePointerId != null) {
-                                activePointerId = null
-                                onHoldUp()
+                                if (activeHoldTriggered && !lockTriggered) {
+                                    onHoldUp()
+                                }
+                                resetPointerState()
                             }
                             true
                         }
 
                         MotionEvent.ACTION_POINTER_UP -> {
                             if (event.pointerIdAtAction() == activePointerId) {
-                                activePointerId = null
-                                onHoldUp()
+                                if (activeHoldTriggered && !lockTriggered) {
+                                    onHoldUp()
+                                }
+                                resetPointerState()
                             }
                             true
                         }
@@ -273,22 +403,17 @@ private fun LabHoldZone(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text(
-                text = if (active) "HOLD ${heldId.orEmpty()}" else "HOLD $candidateLabel",
+                text =
+                    if (active) {
+                        "HOLD ${activeHoldKey.orEmpty()}"
+                    } else if (lockedModifiers.isNotEmpty()) {
+                        "LOCK ${lockedModifiers.joinToString("+")}"
+                    } else {
+                        "HOLD ${candidateBinding.label}"
+                    },
                 color = if (active) colorScheme.onPrimary else colorScheme.onSurface,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "${side.displayName} trigger zone",
-                color =
-                    if (active) {
-                        colorScheme.onPrimary.copy(alpha = 0.72f)
-                    } else {
-                        colorScheme.onSurfaceVariant
-                    },
-                style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -300,6 +425,7 @@ private fun LabHoldZone(
 private fun LabMatrixZone(
     side: LabSide,
     candidate: LabCell,
+    lockedModifiers: List<String>,
     tapSlopPx: Float,
     segmentPx: Float,
     onGesture: (LabGesture) -> Unit,
@@ -405,6 +531,7 @@ private fun LabMatrixZone(
         LabMatrixGrid(
             side = side,
             candidate = candidate,
+            lockedModifiers = lockedModifiers,
             modifier = Modifier.fillMaxSize(),
         )
     }
@@ -414,6 +541,7 @@ private fun LabMatrixZone(
 private fun LabMatrixGrid(
     side: LabSide,
     candidate: LabCell,
+    lockedModifiers: List<String>,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -433,6 +561,7 @@ private fun LabMatrixGrid(
                         LabMatrixCell(
                             label = binding.label,
                             selected = candidate.row == row && candidate.column == column,
+                            locked = binding.key in lockedModifiers,
                             center = row == LAB_CENTER_INDEX && column == LAB_CENTER_INDEX,
                         )
                 }
@@ -445,6 +574,7 @@ private fun LabMatrixGrid(
 private fun RowScope.LabMatrixCell(
     label: String,
     selected: Boolean,
+    locked: Boolean,
     center: Boolean,
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -452,18 +582,21 @@ private fun RowScope.LabMatrixCell(
     val targetBackgroundColor =
         when {
             selected -> colorScheme.primary
+            locked -> colorScheme.tertiaryContainer
             center -> colorScheme.secondaryContainer
             else -> colorScheme.background
         }
     val targetBorderColor =
         when {
             selected -> colorScheme.primary
+            locked -> colorScheme.tertiary
             center -> colorScheme.secondary
             else -> colorScheme.outline.copy(alpha = 0.58f)
         }
     val targetTextColor =
         when {
             selected -> colorScheme.onPrimary
+            locked -> colorScheme.onTertiaryContainer
             center -> colorScheme.onSecondaryContainer
             else -> colorScheme.onSurfaceVariant
         }
@@ -471,7 +604,7 @@ private fun RowScope.LabMatrixCell(
     val borderColor by animateColorAsState(targetValue = targetBorderColor, label = "Lab cell border")
     val textColor by animateColorAsState(targetValue = targetTextColor, label = "Lab cell text")
     val borderWidth by animateDpAsState(
-        targetValue = if (selected || center) 2.dp else 1.dp,
+        targetValue = if (selected || locked || center) 2.dp else 1.dp,
         label = "Lab cell border width",
     )
 
@@ -527,6 +660,8 @@ private enum class LabHapticPattern(
 ) {
     OrthogonalMove(listOf(HapticFeedbackConstants.CLOCK_TICK)),
     Reset(listOf(HapticFeedbackConstants.VIRTUAL_KEY, HapticFeedbackConstants.CLOCK_TICK)),
+    TriggerTap(listOf(HapticFeedbackConstants.KEYBOARD_TAP)),
+    LockToggle(listOf(HapticFeedbackConstants.CLOCK_TICK, HapticFeedbackConstants.VIRTUAL_KEY)),
     HoldDown(listOf(HapticFeedbackConstants.LONG_PRESS)),
     HoldUp(listOf(HapticFeedbackConstants.VIRTUAL_KEY)),
 }
