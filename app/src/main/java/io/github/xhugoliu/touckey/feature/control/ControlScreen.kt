@@ -136,10 +136,16 @@ fun ControlScreen(
         val isCompactLayout = maxWidth < 720.dp
         val contentHorizontalPadding = if (isCompactLayout) 12.dp else 24.dp
         val contentVerticalPadding = if (isCompactLayout) 12.dp else 20.dp
+        val labContentVerticalPadding = if (isCompactLayout) 6.dp else 8.dp
         val consoleContentPadding =
             Modifier.padding(
                 horizontal = contentHorizontalPadding,
                 vertical = contentVerticalPadding,
+            )
+        val labContentPadding =
+            Modifier.padding(
+                horizontal = contentHorizontalPadding,
+                vertical = labContentVerticalPadding,
             )
 
         val onKeyboardZoneTap: (String) -> Unit = { zoneId ->
@@ -257,6 +263,15 @@ fun ControlScreen(
                                         .fillMaxSize()
                                         .padding(innerPadding)
                                         .then(consoleContentPadding),
+                            )
+
+                        ControlPage.Lab ->
+                            LabInteractionPage(
+                                modifier =
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding)
+                                        .then(labContentPadding),
                             )
                     }
                 }
@@ -1166,6 +1181,7 @@ private enum class ControlRoute {
 private enum class ControlPage(val label: String) {
     Keyboard("Keyboard"),
     Touchpad("Touchpad"),
+    Lab("Lab"),
 }
 
 private enum class TouchpadMode {
