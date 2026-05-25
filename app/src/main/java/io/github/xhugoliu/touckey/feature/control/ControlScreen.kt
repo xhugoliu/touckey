@@ -267,6 +267,7 @@ fun ControlScreen(
 
                         ControlPage.Lab ->
                             LabInteractionPage(
+                                onInputAction = onInputAction,
                                 modifier =
                                     Modifier
                                         .fillMaxSize()

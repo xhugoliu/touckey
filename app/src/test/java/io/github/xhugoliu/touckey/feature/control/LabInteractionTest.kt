@@ -67,6 +67,50 @@ class LabInteractionTest {
     }
 
     @Test
+    fun `lab key binding maps left and right matrices to expected keys`() {
+        assertEquals(
+            LabKeyBinding(key = "D", label = "D"),
+            labKeyBinding(LabSide.Left, LabCell(row = 2, column = 2)),
+        )
+        assertEquals(
+            LabKeyBinding(key = "Cmd", label = "GUI"),
+            labKeyBinding(LabSide.Left, LabCell(row = 4, column = 0)),
+        )
+        assertEquals(
+            LabKeyBinding(key = "Enter", label = "Enter"),
+            labKeyBinding(LabSide.Right, LabCell(row = 0, column = 2)),
+        )
+        assertEquals(
+            LabKeyBinding(key = "\\", label = "\\"),
+            labKeyBinding(LabSide.Right, LabCell(row = 4, column = 3)),
+        )
+    }
+
+    @Test
+    fun `hold is interrupted only by a successful candidate move`() {
+        val moved =
+            applyLabGesture(
+                cell = LabCell(),
+                gesture = LabGesture.Right,
+            )
+        val blocked =
+            applyLabGesture(
+                cell = LabCell(row = 0, column = 4),
+                gesture = LabGesture.Right,
+            )
+        val reset =
+            applyLabGesture(
+                cell = LabCell(row = 0, column = 4),
+                gesture = LabGesture.Tap,
+            )
+
+        assertEquals("Enter", interruptedLabHoldKey("Enter", moved))
+        assertEquals(null, interruptedLabHoldKey("Enter", blocked))
+        assertEquals("Enter", interruptedLabHoldKey("Enter", reset))
+        assertEquals(null, interruptedLabHoldKey(null, moved))
+    }
+
+    @Test
     fun `drag segmentation emits repeated orthogonal moves`() {
         val segments =
             segmentLabDrag(

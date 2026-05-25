@@ -1,5 +1,6 @@
 package io.github.xhugoliu.touckey.feature.control
 
+import io.github.xhugoliu.touckey.hid.HidCapabilityCatalog
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -26,6 +27,11 @@ internal data class LabCell(
     fun virtualId(side: LabSide): String = "${side.prefix}${row + 1}${column + 1}"
 }
 
+internal data class LabKeyBinding(
+    val key: String,
+    val label: String,
+)
+
 internal enum class LabGesture(
     val label: String,
     val rowDelta: Int,
@@ -49,6 +55,11 @@ internal data class LabGestureSegments(
     val consumedX: Float,
     val consumedY: Float,
 )
+
+internal fun interruptedLabHoldKey(
+    heldKey: String?,
+    move: LabCandidateMove,
+): String? = if (heldKey != null && move.moved) heldKey else null
 
 internal fun detectLabGesture(
     deltaX: Float,
@@ -137,3 +148,49 @@ internal fun segmentLabDrag(
         consumedY = consumedY,
     )
 }
+
+internal fun labKeyBinding(
+    side: LabSide,
+    cell: LabCell,
+): LabKeyBinding = labKeyRows(side)[cell.row][cell.column]
+
+private fun labKeyRows(side: LabSide): List<List<LabKeyBinding>> =
+    when (side) {
+        LabSide.Left -> LEFT_LAB_KEY_ROWS
+        LabSide.Right -> RIGHT_LAB_KEY_ROWS
+    }
+
+private val LEFT_LAB_KEY_ROWS: List<List<LabKeyBinding>> =
+    listOf(
+        bindings("Alt", "Esc", "Space", "Tab", "Shift"),
+        bindings("Q", "W", "E", "R", "T"),
+        bindings("A", "S", "D", "F", "G"),
+        bindings("Z", "X", "C", "V", "B"),
+        bindings("Cmd", "`", "-", "=", "Ctrl"),
+    )
+
+private val RIGHT_LAB_KEY_ROWS: List<List<LabKeyBinding>> =
+    listOf(
+        bindings("Shift", "Backspace", "Enter", "Delete", "Alt"),
+        bindings("Y", "U", "I", "O", "P"),
+        bindings("H", "J", "K", "L", ";"),
+        bindings("N", "M", ",", ".", "/"),
+        bindings("Ctrl", "[", "]", "\\", "Cmd"),
+    )
+
+private fun bindings(vararg keys: String): List<LabKeyBinding> =
+    keys.map { key ->
+        require(HidCapabilityCatalog.supportsKeyboardInput(key)) {
+            "Lab key binding $key is not supported by HID capability catalog."
+        }
+        LabKeyBinding(key = key, label = key.labDisplayLabel())
+    }
+
+private fun String.labDisplayLabel(): String =
+    when (this) {
+        "Cmd" -> "GUI"
+        "Backspace" -> "Back"
+        "Delete" -> "Del"
+        "Control" -> "Ctrl"
+        else -> this
+    }

@@ -37,9 +37,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.xhugoliu.touckey.input.InputAction
 
 @Composable
 internal fun LabInteractionPage(
+    onInputAction: (InputAction, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -97,6 +99,7 @@ internal fun LabInteractionPage(
     ) {
         val current = candidateFor(side)
         val move = applyLabGesture(current, gesture)
+        val interruptedKey = interruptedLabHoldKey(heldIdFor(side), move)
 
         when {
             gesture == LabGesture.Tap -> {
@@ -108,6 +111,11 @@ internal fun LabInteractionPage(
             }
 
             move.moved -> {
+                interruptedKey?.let { key ->
+                    setHeldId(side, null)
+                    onInputAction(InputAction.KeyReleaseAction(key), false)
+                    pulse(LabHapticPattern.HoldUp)
+                }
                 setCandidate(side, move.nextCell)
                 pulse(LabHapticPattern.OrthogonalMove)
             }
@@ -118,14 +126,16 @@ internal fun LabInteractionPage(
         if (heldIdFor(side) != null) {
             return
         }
-        val id = candidateFor(side).virtualId(side)
-        setHeldId(side, id)
+        val binding = labKeyBinding(side, candidateFor(side))
+        setHeldId(side, binding.key)
+        onInputAction(InputAction.KeyPressAction(binding.key), false)
         pulse(LabHapticPattern.HoldDown)
     }
 
     fun onHoldUp(side: LabSide) {
-        heldIdFor(side) ?: return
+        val key = heldIdFor(side) ?: return
         setHeldId(side, null)
+        onInputAction(InputAction.KeyReleaseAction(key), false)
         pulse(LabHapticPattern.HoldUp)
     }
 
@@ -182,7 +192,7 @@ private fun LabSidePane(
     ) {
         LabHoldZone(
             side = side,
-            candidateId = candidate.virtualId(side),
+            candidateLabel = labKeyBinding(side, candidate).label,
             heldId = heldId,
             onHoldDown = onHoldDown,
             onHoldUp = onHoldUp,
@@ -208,7 +218,7 @@ private fun LabSidePane(
 @Composable
 private fun LabHoldZone(
     side: LabSide,
-    candidateId: String,
+    candidateLabel: String,
     heldId: String?,
     onHoldDown: () -> Unit,
     onHoldUp: () -> Unit,
@@ -263,7 +273,7 @@ private fun LabHoldZone(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             Text(
-                text = if (active) "HOLD ${heldId.orEmpty()}" else "HOLD $candidateId",
+                text = if (active) "HOLD ${heldId.orEmpty()}" else "HOLD $candidateLabel",
                 color = if (active) colorScheme.onPrimary else colorScheme.onSurface,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
@@ -417,13 +427,14 @@ private fun LabMatrixGrid(
                     Modifier
                         .weight(1f)
                         .fillMaxWidth(),
-            ) {
-                repeat(LAB_MATRIX_SIZE) { column ->
-                    LabMatrixCell(
-                        id = LabCell(row = row, column = column).virtualId(side),
-                        selected = candidate.row == row && candidate.column == column,
-                        center = row == LAB_CENTER_INDEX && column == LAB_CENTER_INDEX,
-                    )
+                ) {
+                    repeat(LAB_MATRIX_SIZE) { column ->
+                        val binding = labKeyBinding(side, LabCell(row = row, column = column))
+                        LabMatrixCell(
+                            label = binding.label,
+                            selected = candidate.row == row && candidate.column == column,
+                            center = row == LAB_CENTER_INDEX && column == LAB_CENTER_INDEX,
+                        )
                 }
             }
         }
@@ -432,7 +443,7 @@ private fun LabMatrixGrid(
 
 @Composable
 private fun RowScope.LabMatrixCell(
-    id: String,
+    label: String,
     selected: Boolean,
     center: Boolean,
 ) {
@@ -476,7 +487,7 @@ private fun RowScope.LabMatrixCell(
                 .padding(horizontal = 2.dp),
     ) {
         Text(
-            text = id,
+            text = label,
             color = textColor,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
