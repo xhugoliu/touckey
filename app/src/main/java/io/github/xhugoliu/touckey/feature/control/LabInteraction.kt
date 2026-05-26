@@ -2,11 +2,30 @@ package io.github.xhugoliu.touckey.feature.control
 
 import io.github.xhugoliu.touckey.hid.HidCapabilityCatalog
 import io.github.xhugoliu.touckey.input.InputAction
+import io.github.xhugoliu.touckey.input.MouseButton
 import kotlin.math.abs
 import kotlin.math.hypot
 
 internal const val LAB_MATRIX_SIZE = 5
 internal const val LAB_CENTER_INDEX = 2
+
+private const val LAB_POINTER_CARDINAL_STEP = 14f
+private const val LAB_POINTER_DIAGONAL_STEP = 10f
+private const val LAB_SCROLL_STEP = 6
+private val LOCKABLE_MODIFIERS: Set<String> = setOf("Ctrl", "Shift", "Alt", "Cmd")
+
+internal enum class LabLayer(
+    val displayName: String,
+) {
+    Default(displayName = "Base"),
+    FnNumber(displayName = "Fn"),
+    MouseNav(displayName = "Mouse"),
+}
+
+internal enum class LabLayerSwitch {
+    Next,
+    Previous,
+}
 
 internal enum class LabSide(
     val prefix: String,
@@ -28,14 +47,65 @@ internal data class LabCell(
     fun virtualId(side: LabSide): String = "${side.prefix}${row + 1}${column + 1}"
 }
 
+internal sealed interface LabBinding {
+    val label: String
+    val enabled: Boolean
+        get() = true
+    val activeKeyboardKeys: List<String>
+        get() = emptyList()
+    val activeMouseButton: MouseButton?
+        get() = null
+    val repeatAction: InputAction?
+        get() = null
+    val lockableModifierKey: String?
+        get() = null
+}
+
+internal data object LabEmptyBinding : LabBinding {
+    override val label: String = "none"
+    override val enabled: Boolean = false
+}
+
 internal data class LabKeyBinding(
     val key: String,
-    val label: String,
-)
+    override val label: String = key.labDisplayLabel(),
+) : LabBinding {
+    init {
+        require(HidCapabilityCatalog.supportsKeyboardInput(key)) {
+            "Lab key binding $key is not supported by HID capability catalog."
+        }
+    }
+
+    override val activeKeyboardKeys: List<String> = listOf(key)
+    override val lockableModifierKey: String? = key.takeIf { candidate -> candidate in LOCKABLE_MODIFIERS }
+}
+
+internal data class LabMouseButtonBinding(
+    val button: MouseButton,
+    override val label: String,
+) : LabBinding {
+    override val activeMouseButton: MouseButton = button
+}
+
+internal data class LabPointerMoveBinding(
+    val deltaX: Float,
+    val deltaY: Float,
+    override val label: String,
+) : LabBinding {
+    override val repeatAction: InputAction = InputAction.PointerMoveAction(deltaX = deltaX, deltaY = deltaY)
+}
+
+internal data class LabScrollBinding(
+    val vertical: Int = 0,
+    val horizontal: Int = 0,
+    override val label: String,
+) : LabBinding {
+    override val repeatAction: InputAction = InputAction.ScrollAction(vertical = vertical, horizontal = horizontal)
+}
 
 internal data class LabTriggerState(
     val lockedModifiers: List<String> = emptyList(),
-    val activeHoldKey: String? = null,
+    val activeHoldBinding: LabBinding? = null,
 )
 
 internal enum class LabGesture(
@@ -66,6 +136,11 @@ internal fun interruptedLabHoldKey(
     heldKey: String?,
     move: LabCandidateMove,
 ): String? = if (heldKey != null && move.moved) heldKey else null
+
+internal fun interruptedLabHoldBinding(
+    heldBinding: LabBinding?,
+    move: LabCandidateMove,
+): LabBinding? = if (heldBinding != null && move.moved) heldBinding else null
 
 internal fun interruptedLockedModifiers(
     lockedModifiers: List<String>,
@@ -160,12 +235,43 @@ internal fun segmentLabDrag(
     )
 }
 
-internal fun labKeyBinding(
+internal fun labLayerSwitchForGestures(
+    leftGesture: LabGesture,
+    rightGesture: LabGesture,
+): LabLayerSwitch? =
+    when {
+        leftGesture == LabGesture.Right && rightGesture == LabGesture.Left -> LabLayerSwitch.Next
+        leftGesture == LabGesture.Left && rightGesture == LabGesture.Right -> LabLayerSwitch.Previous
+        else -> null
+    }
+
+internal fun labLayerAfter(
+    layer: LabLayer,
+    switch: LabLayerSwitch,
+): LabLayer {
+    val layers = LabLayer.entries
+    val index = layers.indexOf(layer)
+    val nextIndex =
+        when (switch) {
+            LabLayerSwitch.Next -> (index + 1) % layers.size
+            LabLayerSwitch.Previous -> (index - 1 + layers.size) % layers.size
+        }
+    return layers[nextIndex]
+}
+
+internal fun labResetCellForLayerSwitch(): LabCell = LabCell()
+
+internal fun labResetTriggerStateForLayerSwitch(): LabTriggerState = LabTriggerState()
+
+internal fun labBinding(
     side: LabSide,
     cell: LabCell,
-): LabKeyBinding = labKeyRows(side)[cell.row][cell.column]
+    layer: LabLayer = LabLayer.Default,
+): LabBinding = labBindingRows(layer, side)[cell.row][cell.column]
 
 internal fun isLockableModifier(key: String): Boolean = key in LOCKABLE_MODIFIERS
+
+internal fun isLockableModifier(binding: LabBinding): Boolean = binding.lockableModifierKey != null
 
 internal fun toggleLockedModifier(
     lockedModifiers: List<String>,
@@ -200,11 +306,17 @@ internal fun labTapActions(
 ): List<InputAction> =
     labHoldPressActions(activeKey, lockedModifiers) + labHoldReleaseActions(activeKey, lockedModifiers)
 
-internal fun LabTriggerState.activeKeys(): List<String> =
-    (lockedModifiers + listOfNotNull(activeHoldKey)).distinct()
+internal fun LabTriggerState.activeKeyboardKeys(): List<String> =
+    (lockedModifiers + (activeHoldBinding?.activeKeyboardKeys ?: emptyList())).distinct()
+
+internal fun LabTriggerState.activeMouseButtons(): List<MouseButton> =
+    listOfNotNull(activeHoldBinding?.activeMouseButton).distinct()
 
 internal fun aggregateLabActiveKeys(states: List<LabTriggerState>): List<String> =
-    states.flatMap { state -> state.activeKeys() }.distinct()
+    states.flatMap { state -> state.activeKeyboardKeys() }.distinct()
+
+internal fun aggregateLabActiveMouseButtons(states: List<LabTriggerState>): List<MouseButton> =
+    states.flatMap { state -> state.activeMouseButtons() }.distinct()
 
 internal fun labStateTransitionActions(
     previousStates: List<LabTriggerState>,
@@ -212,16 +324,28 @@ internal fun labStateTransitionActions(
 ): List<InputAction> {
     val previousKeys = aggregateLabActiveKeys(previousStates)
     val nextKeys = aggregateLabActiveKeys(nextStates)
-    val presses =
+    val previousButtons = aggregateLabActiveMouseButtons(previousStates)
+    val nextButtons = aggregateLabActiveMouseButtons(nextStates)
+
+    val keyPresses =
         nextKeys
             .filterNot { key -> key in previousKeys }
             .map { key -> InputAction.KeyPressAction(key) }
-    val releases =
+    val buttonPresses =
+        nextButtons
+            .filterNot { button -> button in previousButtons }
+            .map { button -> InputAction.MouseButtonPressAction(button) }
+    val buttonReleases =
+        previousButtons
+            .asReversed()
+            .filterNot { button -> button in nextButtons }
+            .map { button -> InputAction.MouseButtonReleaseAction(button) }
+    val keyReleases =
         previousKeys
             .asReversed()
             .filterNot { key -> key in nextKeys }
             .map { key -> InputAction.KeyReleaseAction(key) }
-    return presses + releases
+    return keyPresses + buttonPresses + buttonReleases + keyReleases
 }
 
 internal fun labTapActionsAgainstState(
@@ -236,37 +360,108 @@ internal fun labTapActionsAgainstState(
     return presses + releases
 }
 
-private fun labKeyRows(side: LabSide): List<List<LabKeyBinding>> =
-    when (side) {
-        LabSide.Left -> LEFT_LAB_KEY_ROWS
-        LabSide.Right -> RIGHT_LAB_KEY_ROWS
-    }
+private fun labBindingRows(
+    layer: LabLayer,
+    side: LabSide,
+): List<List<LabBinding>> =
+    LAB_BINDING_ROWS.getValue(layer).getValue(side)
 
-private val LEFT_LAB_KEY_ROWS: List<List<LabKeyBinding>> =
-    listOf(
-        bindings("Alt", "Esc", "Space", "Tab", "Shift"),
-        bindings("Q", "W", "E", "R", "T"),
-        bindings("A", "S", "D", "F", "G"),
-        bindings("Z", "X", "C", "V", "B"),
-        bindings("Cmd", "`", "-", "=", "Ctrl"),
+private val LAB_BINDING_ROWS: Map<LabLayer, Map<LabSide, List<List<LabBinding>>>> =
+    mapOf(
+        LabLayer.Default to
+            mapOf(
+                LabSide.Left to
+                    sideRows(
+                        keyRow("Alt", "Esc", "Space", "Tab", "Shift"),
+                        keyRow("Q", "W", "E", "R", "T"),
+                        keyRow("A", "S", "D", "F", "G"),
+                        keyRow("Z", "X", "C", "V", "B"),
+                        keyRow("Cmd", "`", "-", "=", "Ctrl"),
+                    ),
+                LabSide.Right to
+                    sideRows(
+                        keyRow("Shift", "Backspace", "Enter", "Delete", "Alt"),
+                        keyRow("Y", "U", "I", "O", "P"),
+                        keyRow("H", "J", "K", "L", ";"),
+                        keyRow("N", "M", ",", ".", "/"),
+                        keyRow("Ctrl", "[", "]", "\\", "Cmd"),
+                    ),
+            ),
+        LabLayer.FnNumber to
+            mapOf(
+                LabSide.Left to
+                    sideRows(
+                        keyRow("Alt", "F1", "F2", "F3", "Shift"),
+                        keyRow("F4", "F5", "F6", "F7", "F8"),
+                        keyRow("F9", "F10", "F11", "F12", "F13"),
+                        keyRow("F14", "F15", "F16", "F17", "F18"),
+                        keyRow("Cmd", "F19", "F20", "F21", "Ctrl"),
+                    ),
+                LabSide.Right to
+                    sideRows(
+                        row(key("Shift"), none(), none(), none(), key("Alt")),
+                        row(key("KeypadPlus", "+"), key("7"), key("8"), key("9"), key("KeypadMultiply", "*")),
+                        row(none(), key("4"), key("5"), key("6"), none()),
+                        row(key("KeypadMinus", "-"), key("1"), key("2"), key("3"), key("KeypadDivide", "/")),
+                        row(key("Ctrl"), key("0"), key("KeypadPeriod", "."), key("'"), key("Cmd")),
+                    ),
+            ),
+        LabLayer.MouseNav to
+            mapOf(
+                LabSide.Left to
+                    sideRows(
+                        row(key("Alt"), none(), scroll(vertical = LAB_SCROLL_STEP, label = "Scr U"), none(), key("Shift")),
+                        row(none(), pointer(-LAB_POINTER_DIAGONAL_STEP, -LAB_POINTER_DIAGONAL_STEP, "Ptr UL"), pointer(0f, -LAB_POINTER_CARDINAL_STEP, "Ptr U"), pointer(LAB_POINTER_DIAGONAL_STEP, -LAB_POINTER_DIAGONAL_STEP, "Ptr UR"), none()),
+                        row(scroll(horizontal = -LAB_SCROLL_STEP, label = "Scr L"), pointer(-LAB_POINTER_CARDINAL_STEP, 0f, "Ptr L"), none(), pointer(LAB_POINTER_CARDINAL_STEP, 0f, "Ptr R"), scroll(horizontal = LAB_SCROLL_STEP, label = "Scr R")),
+                        row(none(), pointer(-LAB_POINTER_DIAGONAL_STEP, LAB_POINTER_DIAGONAL_STEP, "Ptr DL"), pointer(0f, LAB_POINTER_CARDINAL_STEP, "Ptr D"), pointer(LAB_POINTER_DIAGONAL_STEP, LAB_POINTER_DIAGONAL_STEP, "Ptr DR"), none()),
+                        row(key("Cmd"), none(), scroll(vertical = -LAB_SCROLL_STEP, label = "Scr D"), none(), key("Ctrl")),
+                    ),
+                LabSide.Right to
+                    sideRows(
+                        row(key("Shift"), none(), key("PageUp", "PgUp"), none(), key("Alt")),
+                        row(none(), mouse(MouseButton.Right, "M2"), key("Up"), mouse(MouseButton.Middle, "M3"), none()),
+                        row(key("Home"), key("Left"), mouse(MouseButton.Left, "M1"), key("Right"), key("End")),
+                        row(none(), mouse(MouseButton.Back, "M4"), key("Down"), mouse(MouseButton.Forward, "M5"), none()),
+                        row(key("Ctrl"), none(), key("PageDown", "PgDn"), none(), key("Cmd")),
+                    ),
+            ),
     )
 
-private val RIGHT_LAB_KEY_ROWS: List<List<LabKeyBinding>> =
-    listOf(
-        bindings("Shift", "Backspace", "Enter", "Delete", "Alt"),
-        bindings("Y", "U", "I", "O", "P"),
-        bindings("H", "J", "K", "L", ";"),
-        bindings("N", "M", ",", ".", "/"),
-        bindings("Ctrl", "[", "]", "\\", "Cmd"),
-    )
-
-private fun bindings(vararg keys: String): List<LabKeyBinding> =
-    keys.map { key ->
-        require(HidCapabilityCatalog.supportsKeyboardInput(key)) {
-            "Lab key binding $key is not supported by HID capability catalog."
-        }
-        LabKeyBinding(key = key, label = key.labDisplayLabel())
+private fun sideRows(vararg rows: List<LabBinding>): List<List<LabBinding>> {
+    require(rows.size == LAB_MATRIX_SIZE) { "Lab layer must have $LAB_MATRIX_SIZE rows." }
+    rows.forEach { row ->
+        require(row.size == LAB_MATRIX_SIZE) { "Lab layer rows must have $LAB_MATRIX_SIZE columns." }
     }
+    return rows.toList()
+}
+
+private fun row(vararg bindings: LabBinding): List<LabBinding> = bindings.toList()
+
+private fun keyRow(vararg keys: String): List<LabBinding> = keys.map { key -> key(key) }
+
+private fun key(
+    key: String,
+    label: String = key.labDisplayLabel(),
+): LabKeyBinding = LabKeyBinding(key = key, label = label)
+
+private fun none(): LabBinding = LabEmptyBinding
+
+private fun mouse(
+    button: MouseButton,
+    label: String,
+): LabBinding = LabMouseButtonBinding(button = button, label = label)
+
+private fun pointer(
+    deltaX: Float,
+    deltaY: Float,
+    label: String,
+): LabBinding = LabPointerMoveBinding(deltaX = deltaX, deltaY = deltaY, label = label)
+
+private fun scroll(
+    vertical: Int = 0,
+    horizontal: Int = 0,
+    label: String,
+): LabBinding = LabScrollBinding(vertical = vertical, horizontal = horizontal, label = label)
 
 private fun String.labDisplayLabel(): String =
     when (this) {
@@ -276,5 +471,3 @@ private fun String.labDisplayLabel(): String =
         "Control" -> "Ctrl"
         else -> this
     }
-
-private val LOCKABLE_MODIFIERS: Set<String> = setOf("Ctrl", "Shift", "Alt", "Cmd")

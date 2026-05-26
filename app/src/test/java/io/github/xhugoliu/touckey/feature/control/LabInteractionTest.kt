@@ -1,6 +1,7 @@
 package io.github.xhugoliu.touckey.feature.control
 
 import io.github.xhugoliu.touckey.input.InputAction
+import io.github.xhugoliu.touckey.input.MouseButton
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -71,19 +72,59 @@ class LabInteractionTest {
     fun `lab key binding maps left and right matrices to expected keys`() {
         assertEquals(
             LabKeyBinding(key = "D", label = "D"),
-            labKeyBinding(LabSide.Left, LabCell(row = 2, column = 2)),
+            labBinding(LabSide.Left, LabCell(row = 2, column = 2)),
         )
         assertEquals(
             LabKeyBinding(key = "Cmd", label = "GUI"),
-            labKeyBinding(LabSide.Left, LabCell(row = 4, column = 0)),
+            labBinding(LabSide.Left, LabCell(row = 4, column = 0)),
         )
         assertEquals(
             LabKeyBinding(key = "Enter", label = "Enter"),
-            labKeyBinding(LabSide.Right, LabCell(row = 0, column = 2)),
+            labBinding(LabSide.Right, LabCell(row = 0, column = 2)),
         )
         assertEquals(
             LabKeyBinding(key = "\\", label = "\\"),
-            labKeyBinding(LabSide.Right, LabCell(row = 4, column = 3)),
+            labBinding(LabSide.Right, LabCell(row = 4, column = 3)),
+        )
+    }
+
+    @Test
+    fun `fn number layer maps extended function keys keypad operators and none cells`() {
+        assertEquals(
+            LabKeyBinding(key = "F21", label = "F21"),
+            labBinding(LabSide.Left, LabCell(row = 4, column = 3), LabLayer.FnNumber),
+        )
+        assertEquals(
+            LabKeyBinding(key = "KeypadPlus", label = "+"),
+            labBinding(LabSide.Right, LabCell(row = 1, column = 0), LabLayer.FnNumber),
+        )
+        assertEquals(
+            LabKeyBinding(key = "KeypadPeriod", label = "."),
+            labBinding(LabSide.Right, LabCell(row = 4, column = 2), LabLayer.FnNumber),
+        )
+        assertEquals(
+            LabEmptyBinding,
+            labBinding(LabSide.Right, LabCell(row = 0, column = 1), LabLayer.FnNumber),
+        )
+    }
+
+    @Test
+    fun `mouse navigation layer maps pointer scroll mouse and arrow bindings`() {
+        assertEquals(
+            LabScrollBinding(vertical = 6, label = "Scr U"),
+            labBinding(LabSide.Left, LabCell(row = 0, column = 2), LabLayer.MouseNav),
+        )
+        assertEquals(
+            LabPointerMoveBinding(deltaX = 10f, deltaY = -10f, label = "Ptr UR"),
+            labBinding(LabSide.Left, LabCell(row = 1, column = 3), LabLayer.MouseNav),
+        )
+        assertEquals(
+            LabMouseButtonBinding(button = MouseButton.Forward, label = "M5"),
+            labBinding(LabSide.Right, LabCell(row = 3, column = 3), LabLayer.MouseNav),
+        )
+        assertEquals(
+            LabKeyBinding(key = "PageDown", label = "PgDn"),
+            labBinding(LabSide.Right, LabCell(row = 4, column = 2), LabLayer.MouseNav),
         )
     }
 
@@ -173,18 +214,18 @@ class LabInteractionTest {
     fun `state transition actions support independent left and right holds`() {
         val previous =
             listOf(
-                LabTriggerState(lockedModifiers = listOf("Ctrl"), activeHoldKey = "C"),
+                LabTriggerState(lockedModifiers = listOf("Ctrl"), activeHoldBinding = LabKeyBinding("C")),
                 LabTriggerState(),
             )
         val next =
             listOf(
-                LabTriggerState(lockedModifiers = listOf("Ctrl"), activeHoldKey = "C"),
-                LabTriggerState(lockedModifiers = listOf("Shift"), activeHoldKey = "M"),
+                LabTriggerState(lockedModifiers = listOf("Ctrl"), activeHoldBinding = LabKeyBinding("C")),
+                LabTriggerState(lockedModifiers = listOf("Shift"), activeHoldBinding = LabKeyBinding("M")),
             )
         val released =
             listOf(
                 LabTriggerState(),
-                LabTriggerState(lockedModifiers = listOf("Shift"), activeHoldKey = "M"),
+                LabTriggerState(lockedModifiers = listOf("Shift"), activeHoldBinding = LabKeyBinding("M")),
             )
 
         assertEquals(
@@ -220,7 +261,7 @@ class LabInteractionTest {
     fun `promoting held modifier into locked modifier does not emit release`() {
         val previous =
             listOf(
-                LabTriggerState(activeHoldKey = "Ctrl"),
+                LabTriggerState(activeHoldBinding = LabKeyBinding("Ctrl")),
                 LabTriggerState(),
             )
         val next =
@@ -232,6 +273,65 @@ class LabInteractionTest {
         assertEquals(
             emptyList<InputAction>(),
             labStateTransitionActions(previous, next),
+        )
+    }
+
+    @Test
+    fun `mouse button hold emits button press and release transitions`() {
+        val previous =
+            listOf(
+                LabTriggerState(activeHoldBinding = LabMouseButtonBinding(MouseButton.Left, "M1")),
+                LabTriggerState(),
+            )
+        val next =
+            listOf(
+                LabTriggerState(activeHoldBinding = LabMouseButtonBinding(MouseButton.Left, "M1")),
+                LabTriggerState(activeHoldBinding = LabMouseButtonBinding(MouseButton.Forward, "M5")),
+            )
+        val released =
+            listOf(
+                LabTriggerState(),
+                LabTriggerState(activeHoldBinding = LabMouseButtonBinding(MouseButton.Forward, "M5")),
+            )
+
+        assertEquals(
+            listOf<InputAction>(
+                InputAction.MouseButtonPressAction(MouseButton.Forward),
+            ),
+            labStateTransitionActions(previous, next),
+        )
+        assertEquals(
+            listOf<InputAction>(
+                InputAction.MouseButtonReleaseAction(MouseButton.Left),
+            ),
+            labStateTransitionActions(next, released),
+        )
+    }
+
+    @Test
+    fun `inner and outer paired horizontal gestures switch layers`() {
+        assertEquals(
+            LabLayerSwitch.Next,
+            labLayerSwitchForGestures(LabGesture.Right, LabGesture.Left),
+        )
+        assertEquals(
+            LabLayerSwitch.Previous,
+            labLayerSwitchForGestures(LabGesture.Left, LabGesture.Right),
+        )
+        assertEquals(null, labLayerSwitchForGestures(LabGesture.Right, LabGesture.Right))
+
+        assertEquals(LabLayer.FnNumber, labLayerAfter(LabLayer.Default, LabLayerSwitch.Next))
+        assertEquals(LabLayer.MouseNav, labLayerAfter(LabLayer.FnNumber, LabLayerSwitch.Next))
+        assertEquals(LabLayer.Default, labLayerAfter(LabLayer.MouseNav, LabLayerSwitch.Next))
+        assertEquals(LabLayer.MouseNav, labLayerAfter(LabLayer.Default, LabLayerSwitch.Previous))
+    }
+
+    @Test
+    fun `layer switch resets candidate and trigger state`() {
+        assertEquals(LabCell(), labResetCellForLayerSwitch())
+        assertEquals(
+            LabTriggerState(),
+            labResetTriggerStateForLayerSwitch(),
         )
     }
 

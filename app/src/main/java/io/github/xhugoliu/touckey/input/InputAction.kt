@@ -5,6 +5,7 @@ enum class MouseButton {
     Right,
     Middle,
     Back,
+    Forward,
 }
 
 sealed interface InputAction {

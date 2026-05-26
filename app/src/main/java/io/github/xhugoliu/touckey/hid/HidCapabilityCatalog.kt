@@ -78,6 +78,20 @@ object HidCapabilityCatalog {
             (1..12).forEach { functionNumber ->
                 put("F$functionNumber", 0x39 + functionNumber)
             }
+            (13..21).forEach { functionNumber ->
+                put("F$functionNumber", 0x68 + (functionNumber - 13))
+            }
+
+            put("KeypadDivide", 0x54)
+            put("Keypad/", 0x54)
+            put("KeypadMultiply", 0x55)
+            put("Keypad*", 0x55)
+            put("KeypadMinus", 0x56)
+            put("Keypad-", 0x56)
+            put("KeypadPlus", 0x57)
+            put("Keypad+", 0x57)
+            put("KeypadPeriod", 0x63)
+            put("Keypad.", 0x63)
 
             put("PrintScreen", 0x46)
             put("ScrollLock", 0x47)
@@ -119,6 +133,15 @@ object HidCapabilityCatalog {
             "F10",
             "F11",
             "F12",
+            "F13",
+            "F14",
+            "F15",
+            "F16",
+            "F17",
+            "F18",
+            "F19",
+            "F20",
+            "F21",
             "Grave",
             "1",
             "2",
@@ -183,6 +206,11 @@ object HidCapabilityCatalog {
             "Down",
             "Up",
             "Menu",
+            "KeypadDivide",
+            "KeypadMultiply",
+            "KeypadMinus",
+            "KeypadPlus",
+            "KeypadPeriod",
         ).filter { name -> keyUsages.containsKey(name) || modifierBits.containsKey(name) }
 
     val mouseButtonBits: Map<MouseButton, Int> =
@@ -191,6 +219,7 @@ object HidCapabilityCatalog {
             MouseButton.Right to 0x02,
             MouseButton.Middle to 0x04,
             MouseButton.Back to 0x08,
+            MouseButton.Forward to 0x10,
         )
 
     fun modifierBit(name: String): Int? = modifierBits[name]

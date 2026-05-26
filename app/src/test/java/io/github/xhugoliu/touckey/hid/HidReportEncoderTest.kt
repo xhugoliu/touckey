@@ -152,6 +152,47 @@ class HidReportEncoderTest {
     }
 
     @Test
+    fun `extended function and keypad operator keys are mapped`() {
+        assertEquals(0x68, HidCapabilityCatalog.keyUsage("F13"))
+        assertEquals(0x6A, HidCapabilityCatalog.keyUsage("F15"))
+        assertEquals(0x6F, HidCapabilityCatalog.keyUsage("F20"))
+        assertEquals(0x70, HidCapabilityCatalog.keyUsage("F21"))
+        assertEquals(0x54, HidCapabilityCatalog.keyUsage("KeypadDivide"))
+        assertEquals(0x55, HidCapabilityCatalog.keyUsage("KeypadMultiply"))
+        assertEquals(0x56, HidCapabilityCatalog.keyUsage("KeypadMinus"))
+        assertEquals(0x57, HidCapabilityCatalog.keyUsage("KeypadPlus"))
+        assertEquals(0x63, HidCapabilityCatalog.keyUsage("KeypadPeriod"))
+
+        val result =
+            HidReportEncoder.encode(
+                InputAction.KeyComboAction(
+                    keys = listOf("F21", "KeypadPlus", "KeypadPeriod"),
+                ),
+                currentMouseButtons = 0,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0x70, result.packets.first().payload[2].toInt())
+        assertEquals(0x57, result.packets.first().payload[3].toInt())
+        assertEquals(0x63, result.packets.first().payload[4].toInt())
+    }
+
+    @Test
+    fun `forward mouse button uses the fifth mouse button bit`() {
+        val press =
+            HidReportEncoder.encode(
+                InputAction.MouseButtonPressAction(MouseButton.Forward),
+                currentMouseButtons = 0,
+                currentKeyboardModifiers = 0,
+                currentKeyboardKeys = emptyList(),
+            ) as HidEncodingResult.Supported
+
+        assertEquals(0x10, press.nextMouseButtons)
+        assertEquals(0x10, press.packets.single().payload[0].toInt())
+    }
+
+    @Test
     fun `key press and release keep keyboard state like a real keyboard`() {
         val pressModifier =
             HidReportEncoder.encode(
