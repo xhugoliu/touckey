@@ -26,7 +26,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,9 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.xhugoliu.touckey.input.InputAction
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 internal fun LabInteractionPage(
@@ -54,7 +51,6 @@ internal fun LabInteractionPage(
     val view = LocalView.current
     val touchSlop = remember { ViewConfiguration.get(context).scaledTouchSlop.toFloat() }
     val segmentPx = remember(touchSlop) { touchSlop * 1.9f }
-    val triggerLockDelayMillis = 2_000L
 
     var currentLayer by rememberSaveable { mutableStateOf(LabLayer.Default) }
     var leftCandidate by remember { mutableStateOf(LabCell()) }
@@ -318,7 +314,7 @@ internal fun LabInteractionPage(
                 currentState.copy(
                     lockedModifiers = nextLocked,
                     activeHoldBinding =
-                        if (currentState.activeHoldBinding?.activeKeyboardKeys == listOf(modifierKey) && modifierKey in nextLocked) {
+                        if (currentState.activeHoldBinding?.activeKeyboardKeys == listOf(modifierKey)) {
                             null
                         } else {
                             currentState.activeHoldBinding
@@ -329,11 +325,14 @@ internal fun LabInteractionPage(
         pulse(LabHapticPattern.LockToggle)
     }
 
-    fun onHoldUp(side: LabSide) {
+    fun onHoldUp(
+        side: LabSide,
+        clearLocks: Boolean,
+    ) {
         if (triggerStateFor(side).activeHoldBinding == null) {
             return
         }
-        releaseHold(side, pulseFeedback = true, clearLocks = true)
+        releaseHold(side, pulseFeedback = true, clearLocks = clearLocks)
     }
 
     fun onMatrixActiveChange(
@@ -359,13 +358,12 @@ internal fun LabInteractionPage(
             candidate = leftCandidate,
             activeHoldLabel = leftTriggerState.activeHoldBinding?.label,
             lockedModifiers = leftTriggerState.lockedModifiers,
-            triggerLockDelayMillis = triggerLockDelayMillis,
             tapSlopPx = touchSlop * 1.25f,
             segmentPx = segmentPx,
             onGesture = { onGesture(LabSide.Left, it) },
             onHoldDown = { binding -> onHoldDown(LabSide.Left, binding) },
             onToggleLock = { binding -> onToggleLock(LabSide.Left, binding) },
-            onHoldUp = { onHoldUp(LabSide.Left) },
+            onHoldUp = { clearLocks -> onHoldUp(LabSide.Left, clearLocks) },
             onMatrixActiveChange = { active -> onMatrixActiveChange(LabSide.Left, active) },
             modifier =
                 Modifier
@@ -378,13 +376,12 @@ internal fun LabInteractionPage(
             candidate = rightCandidate,
             activeHoldLabel = rightTriggerState.activeHoldBinding?.label,
             lockedModifiers = rightTriggerState.lockedModifiers,
-            triggerLockDelayMillis = triggerLockDelayMillis,
             tapSlopPx = touchSlop * 1.25f,
             segmentPx = segmentPx,
             onGesture = { onGesture(LabSide.Right, it) },
             onHoldDown = { binding -> onHoldDown(LabSide.Right, binding) },
             onToggleLock = { binding -> onToggleLock(LabSide.Right, binding) },
-            onHoldUp = { onHoldUp(LabSide.Right) },
+            onHoldUp = { clearLocks -> onHoldUp(LabSide.Right, clearLocks) },
             onMatrixActiveChange = { active -> onMatrixActiveChange(LabSide.Right, active) },
             modifier =
                 Modifier
@@ -401,13 +398,12 @@ private fun LabSidePane(
     candidate: LabCell,
     activeHoldLabel: String?,
     lockedModifiers: List<String>,
-    triggerLockDelayMillis: Long,
     tapSlopPx: Float,
     segmentPx: Float,
     onGesture: (LabGesture) -> Unit,
     onHoldDown: (LabBinding) -> Unit,
     onToggleLock: (LabBinding) -> Unit,
-    onHoldUp: () -> Unit,
+    onHoldUp: (Boolean) -> Unit,
     onMatrixActiveChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -420,7 +416,6 @@ private fun LabSidePane(
             candidateBinding = labBinding(side = side, cell = candidate, layer = layer),
             activeHoldLabel = activeHoldLabel,
             lockedModifiers = lockedModifiers,
-            triggerLockDelayMillis = triggerLockDelayMillis,
             onHoldDown = onHoldDown,
             onToggleLock = onToggleLock,
             onHoldUp = onHoldUp,
@@ -452,31 +447,26 @@ private fun LabHoldZone(
     candidateBinding: LabBinding,
     activeHoldLabel: String?,
     lockedModifiers: List<String>,
-    triggerLockDelayMillis: Long,
     onHoldDown: (LabBinding) -> Unit,
     onToggleLock: (LabBinding) -> Unit,
-    onHoldUp: () -> Unit,
+    onHoldUp: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var activePointerId by remember { mutableStateOf<Int?>(null) }
     var activeHoldTriggered by remember { mutableStateOf(false) }
     var lockTriggered by remember { mutableStateOf(false) }
+    var lastUpTimeMillis by remember { mutableStateOf<Long?>(null) }
+    var lastUpModifierKey by remember { mutableStateOf<String?>(null) }
     val colorScheme = MaterialTheme.colorScheme
-    val coroutineScope = rememberCoroutineScope()
-    var lockJob by remember { mutableStateOf<Job?>(null) }
+    val doubleTapTimeoutMillis = ViewConfiguration.getDoubleTapTimeout().toLong()
     val active = activeHoldLabel != null
     val enabled = candidateBinding.enabled
-
-    fun cancelLockJob() {
-        lockJob?.cancel()
-        lockJob = null
-    }
+    val modifierKey = candidateBinding.lockableModifierKey
 
     fun resetPointerState() {
         activePointerId = null
         activeHoldTriggered = false
         lockTriggered = false
-        cancelLockJob()
     }
 
     Surface(
@@ -498,19 +488,9 @@ private fun LabHoldZone(
                                 activePointerId = event.pointerIdAtAction()
                                 activeHoldTriggered = false
                                 lockTriggered = false
-                                cancelLockJob()
                                 if (enabled) {
                                     onHoldDown(candidateBinding)
                                     activeHoldTriggered = true
-                                    lockJob =
-                                        coroutineScope.launch {
-                                            delay(triggerLockDelayMillis)
-                                            if (activePointerId != null && !lockTriggered && isLockableModifier(candidateBinding)) {
-                                                onToggleLock(candidateBinding)
-                                                lockTriggered = true
-                                                activeHoldTriggered = false
-                                            }
-                                        }
                                 }
                             }
                             true
@@ -522,8 +502,30 @@ private fun LabHoldZone(
                         MotionEvent.ACTION_CANCEL,
                         -> {
                             if (activePointerId != null) {
+                                val isDoubleTap =
+                                    enabled &&
+                                        event.actionMasked == MotionEvent.ACTION_UP &&
+                                        modifierKey != null &&
+                                        modifierKey == lastUpModifierKey &&
+                                        lastUpTimeMillis?.let { previousUp ->
+                                            event.eventTime - previousUp <= doubleTapTimeoutMillis
+                                        } == true
+                                val preserveCurrentLock = modifierKey != null && modifierKey in lockedModifiers
                                 if (activeHoldTriggered && !lockTriggered) {
-                                    onHoldUp()
+                                    if (isDoubleTap) {
+                                        onToggleLock(candidateBinding)
+                                        lockTriggered = true
+                                        activeHoldTriggered = false
+                                    } else {
+                                        onHoldUp(!preserveCurrentLock)
+                                    }
+                                }
+                                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                                    lastUpTimeMillis = event.eventTime
+                                    lastUpModifierKey = modifierKey
+                                } else {
+                                    lastUpTimeMillis = null
+                                    lastUpModifierKey = null
                                 }
                                 resetPointerState()
                             }
@@ -532,9 +534,25 @@ private fun LabHoldZone(
 
                         MotionEvent.ACTION_POINTER_UP -> {
                             if (event.pointerIdAtAction() == activePointerId) {
+                                val isDoubleTap =
+                                    enabled &&
+                                        modifierKey != null &&
+                                        modifierKey == lastUpModifierKey &&
+                                        lastUpTimeMillis?.let { previousUp ->
+                                            event.eventTime - previousUp <= doubleTapTimeoutMillis
+                                        } == true
+                                val preserveCurrentLock = modifierKey != null && modifierKey in lockedModifiers
                                 if (activeHoldTriggered && !lockTriggered) {
-                                    onHoldUp()
+                                    if (isDoubleTap) {
+                                        onToggleLock(candidateBinding)
+                                        lockTriggered = true
+                                        activeHoldTriggered = false
+                                    } else {
+                                        onHoldUp(!preserveCurrentLock)
+                                    }
                                 }
+                                lastUpTimeMillis = event.eventTime
+                                lastUpModifierKey = modifierKey
                                 resetPointerState()
                             }
                             true
