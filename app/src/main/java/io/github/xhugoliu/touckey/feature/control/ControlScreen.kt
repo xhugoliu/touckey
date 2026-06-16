@@ -2,6 +2,8 @@ package io.github.xhugoliu.touckey.feature.control
 
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,8 +17,11 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.shape.CircleShape
@@ -39,11 +44,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import io.github.xhugoliu.touckey.input.InputAction
@@ -69,12 +77,9 @@ fun ControlScreen(
     onInputAction: (InputAction, Boolean) -> Unit,
     onEnvironmentActionTap: (ControlEnvironmentActionId) -> Unit,
     onConnectionActionTap: (ControlConnectionAction) -> Unit,
-    onSurfaceProfileSave: (List<List<DefaultKeyboardKeySpec>>) -> Unit,
-    onSurfaceProfileReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var currentRoute by rememberSaveable { mutableStateOf(ControlRoute.Console) }
-    var currentPage by rememberSaveable { mutableStateOf(ControlPage.Touchpad) }
+    var currentPage by rememberSaveable { mutableStateOf(ControlPage.Lab0) }
     var modifierMode by rememberSaveable { mutableStateOf(ModifierMode.Preset) }
     var armedModifiers by remember { mutableStateOf<List<String>>(emptyList()) }
     var activeHoldKeys by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -137,6 +142,8 @@ fun ControlScreen(
         val contentHorizontalPadding = if (isCompactLayout) 12.dp else 24.dp
         val contentVerticalPadding = if (isCompactLayout) 12.dp else 20.dp
         val labContentVerticalPadding = if (isCompactLayout) 6.dp else 8.dp
+        val centerRailWidth = if (isCompactLayout) 68.dp else 80.dp
+        val centerRailGap = centerRailWidth + if (isCompactLayout) 20.dp else 24.dp
         val consoleContentPadding =
             Modifier.padding(
                 horizontal = contentHorizontalPadding,
@@ -147,6 +154,8 @@ fun ControlScreen(
                 horizontal = contentHorizontalPadding,
                 vertical = labContentVerticalPadding,
             )
+        val activePage =
+            currentPage.takeIf { it.isPrimaryEntry } ?: ControlPage.Lab0
 
         val onKeyboardZoneTap: (String) -> Unit = { zoneId ->
             if (uiState.isInputEnabled) {
@@ -190,121 +199,85 @@ fun ControlScreen(
             containerColor = Color.Transparent,
             snackbarHost = snackbarHost,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            topBar = {
-                if (currentRoute == ControlRoute.Console) {
-                    CornerChrome(
-                        currentPage = currentPage,
-                        connection = uiState.connection,
-                        compact = isCompactLayout,
-                        onPageSelected = { page ->
-                            currentPage = page
-                            releaseHeldKeys()
-                            armedModifiers = emptyList()
-                        },
-                        onSettingsTap = {
-                            releaseHeldKeys()
-                            armedModifiers = emptyList()
-                            showConnectionPanel = false
-                            currentRoute = ControlRoute.Settings
-                        },
-                        onConnectionTap = {
-                            if (uiState.connection.isActionable) {
-                                showConnectionPanel = true
-                            }
-                        },
+            bottomBar = {
+                uiState.setupPrompt?.let { prompt ->
+                    SetupPrompt(
+                        prompt = prompt,
+                        onActionTap = onEnvironmentActionTap,
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = if (isCompactLayout) 12.dp else 16.dp, vertical = 12.dp),
+                                .padding(horizontal = if (isCompactLayout) 12.dp else 20.dp, vertical = 12.dp)
                     )
-                }
-            },
-            bottomBar = {
-                if (currentRoute == ControlRoute.Console) {
-                    uiState.setupPrompt?.let { prompt ->
-                        SetupPrompt(
-                            prompt = prompt,
-                            onActionTap = onEnvironmentActionTap,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = if (isCompactLayout) 12.dp else 20.dp, vertical = 12.dp)
-                        )
-                    }
                 }
             },
         ) { innerPadding ->
-            when (currentRoute) {
-                ControlRoute.Console -> {
-                    when (currentPage) {
-                        ControlPage.Keyboard ->
-                            KeyboardPage(
-                                enabled = uiState.isInputEnabled,
-                                keyRows = keyboardRows,
-                                modifierMode = modifierMode,
-                                activePresetModifiers = armedModifiers,
-                                activeHoldKeys = activeHoldKeys,
-                                onZoneTap = onKeyboardZoneTap,
-                                onZoneDown = onKeyboardZoneDown,
-                                onZoneUp = onKeyboardZoneUp,
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .padding(innerPadding)
-                                        .then(consoleContentPadding),
-                            )
-
-                        ControlPage.Touchpad ->
-                            TouchpadPage(
-                                enabled = uiState.isInputEnabled,
-                                onTouchpadAction = onInputAction,
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .padding(innerPadding)
-                                        .then(consoleContentPadding),
-                            )
-
-                        ControlPage.Lab0,
-                        ControlPage.Lab1,
-                        ControlPage.Lab2,
-                        ->
-                            LabInteractionPage(
-                                layer = currentPage.labLayer,
-                                onInputAction = onInputAction,
-                                modifier =
-                                    Modifier
-                                        .fillMaxSize()
-                                        .padding(innerPadding)
-                                        .then(labContentPadding),
-                            )
-                    }
-                }
-
-                ControlRoute.Settings ->
-                    SettingsScreen(
+            when (activePage) {
+                ControlPage.Keyboard ->
+                    KeyboardPage(
+                        enabled = uiState.isInputEnabled,
+                        keyRows = keyboardRows,
                         modifierMode = modifierMode,
-                        layoutProfileSet = surfaceProfileSet,
-                        onModifierModeSelected = { mode ->
-                            releaseHeldKeys()
-                            armedModifiers = emptyList()
-                            modifierMode = mode
-                        },
-                        onLayoutProfileSave = onSurfaceProfileSave,
-                        onLayoutProfileReset = onSurfaceProfileReset,
-                        onBackTap = {
-                            releaseHeldKeys()
-                            armedModifiers = emptyList()
-                            showConnectionPanel = false
-                            currentRoute = ControlRoute.Console
-                        },
+                        activePresetModifiers = armedModifiers,
+                        activeHoldKeys = activeHoldKeys,
+                        onZoneTap = onKeyboardZoneTap,
+                        onZoneDown = onKeyboardZoneDown,
+                        onZoneUp = onKeyboardZoneUp,
                         modifier =
                             Modifier
                                 .fillMaxSize()
-                                .padding(innerPadding),
+                                .padding(innerPadding)
+                                .then(consoleContentPadding),
+                    )
+
+                ControlPage.Touchpad ->
+                    TouchpadPage(
+                        enabled = uiState.isInputEnabled,
+                        onTouchpadAction = onInputAction,
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                                .then(consoleContentPadding),
+                    )
+
+                ControlPage.Lab0,
+                ControlPage.Lab1,
+                ControlPage.Lab2,
+                ->
+                    LabInteractionPage(
+                        layer = activePage.labLayer,
+                        centerGap = centerRailGap,
+                        onInputAction = onInputAction,
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                                .then(labContentPadding),
                     )
             }
         }
+
+        CenterControlRail(
+            currentPage = activePage,
+            connection = uiState.connection,
+            railWidth = centerRailWidth,
+            onConnectionTap = {
+                if (uiState.connection.isActionable) {
+                    showConnectionPanel = true
+                }
+            },
+            onPageSelected = { page ->
+                currentPage = page
+                releaseHeldKeys()
+                armedModifiers = emptyList()
+            },
+            modifier =
+                Modifier
+                    .align(Alignment.Center)
+                    .fillMaxHeight()
+                    .padding(vertical = labContentVerticalPadding),
+        )
 
         if (showConnectionPanel) {
             ConnectionControlDialog(
@@ -358,98 +331,38 @@ private fun ConsoleAtmosphere() {
 }
 
 @Composable
-private fun CornerChrome(
+private fun CenterControlRail(
     currentPage: ControlPage,
     connection: ControlConnectionUiState,
-    compact: Boolean,
-    onPageSelected: (ControlPage) -> Unit,
-    onSettingsTap: () -> Unit,
+    railWidth: Dp,
     onConnectionTap: () -> Unit,
+    onPageSelected: (ControlPage) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (compact) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = modifier,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                CornerButton(
-                    label = "Settings",
-                    emphasized = false,
-                    onTap = onSettingsTap,
-                    modifier = Modifier.weight(1f),
-                )
-                ConnectionBadge(
-                    connection = connection,
-                    modifier = Modifier.weight(1.25f),
-                    multiline = false,
-                    showDetail = false,
-                    onTap = onConnectionTap,
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ControlPage.entries.forEach { page ->
-                    CornerButton(
-                        label = page.label,
-                        emphasized = currentPage == page,
-                        onTap = { onPageSelected(page) },
-                    )
-                }
-            }
-        }
-    } else {
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
-            modifier = modifier,
-        ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-                horizontalAlignment = Alignment.Start,
-                modifier = Modifier.widthIn(max = 560.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    CornerButton(
-                        label = "Settings",
-                        emphasized = false,
-                        onTap = onSettingsTap,
-                    )
-                    ConnectionBadge(
-                        connection = connection,
-                        showDetail = false,
-                        onTap = onConnectionTap,
-                    )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ControlPage.entries.forEach { page ->
-                    CornerButton(
-                        label = page.label,
-                        emphasized = currentPage == page,
-                        onTap = { onPageSelected(page) },
-                    )
-                }
-            }
-        }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.width(railWidth),
+    ) {
+        RailConnectionStatus(
+            connection = connection,
+            onTap = onConnectionTap,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        LayerSegmentedControl(
+            currentPage = currentPage,
+            railWidth = railWidth,
+            onPageSelected = onPageSelected,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
 @Composable
-private fun ConnectionBadge(
+private fun RailConnectionStatus(
     connection: ControlConnectionUiState,
-    modifier: Modifier = Modifier,
-    multiline: Boolean = false,
-    showDetail: Boolean = true,
     onTap: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val accentColor =
@@ -459,16 +372,13 @@ private fun ConnectionBadge(
             ControlStatusAccent.Neutral -> colorScheme.onSurface.copy(alpha = 0.44f)
             ControlStatusAccent.Critical -> colorScheme.onSurface.copy(alpha = 0.92f)
         }
+    val shape = RoundedCornerShape(20.dp)
 
     Surface(
         color = colorScheme.surface.copy(alpha = 0.9f),
-        shape = RoundedCornerShape(16.dp),
+        shape = shape,
         modifier =
-            if (multiline) {
-                modifier
-            } else {
-                modifier.widthIn(max = 420.dp)
-            }
+            modifier
                 .then(
                     if (connection.isActionable) {
                         Modifier.clickable(onClick = onTap)
@@ -477,10 +387,10 @@ private fun ConnectionBadge(
                     },
                 ),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
         ) {
             Box(
                 modifier =
@@ -490,19 +400,207 @@ private fun ConnectionBadge(
                         .background(accentColor),
             )
             Text(
-                text =
-                    if (showDetail) {
-                        "${connection.label} · ${connection.detail}"
-                    } else {
-                        connection.label
-                    },
+                text = connection.label,
                 color = colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
-                maxLines = if (multiline) 2 else 1,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun LayerSegmentedControl(
+    currentPage: ControlPage,
+    railWidth: Dp,
+    onPageSelected: (ControlPage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val colorScheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(20.dp)
+    val pages = ControlPage.primaryEntries
+    var heightPx by remember { mutableStateOf(0) }
+    var activePointerId by remember { mutableStateOf<Int?>(null) }
+    var gesturePage by remember { mutableStateOf(currentPage) }
+    var lastY by remember { mutableFloatStateOf(0f) }
+    var accumulatedY by remember { mutableFloatStateOf(0f) }
+    var hasSegmentMove by remember { mutableStateOf(false) }
+    val touchSlop = remember { ViewConfiguration.get(context).scaledTouchSlop.toFloat() }
+
+    fun resetPointerState() {
+        activePointerId = null
+        accumulatedY = 0f
+        hasSegmentMove = false
+    }
+
+    fun layerSegmentPx(): Float =
+        if (heightPx > 0) {
+            (heightPx / pages.size.toFloat()).coerceAtLeast(touchSlop * 1.4f)
+        } else {
+            touchSlop * 2f
+        }
+
+    fun selectRelativeStep(step: Int) {
+        val currentIndex = pages.indexOf(gesturePage).takeIf { it >= 0 } ?: pages.indexOf(ControlPage.Lab0)
+        val nextPage = pages[(currentIndex + step).coerceIn(0, pages.lastIndex)]
+        if (nextPage != gesturePage) {
+            gesturePage = nextPage
+            onPageSelected(nextPage)
+        }
+    }
+
+    fun applyDrag(deltaY: Float) {
+        accumulatedY += deltaY
+        val segmentPx = layerSegmentPx()
+        while (accumulatedY >= segmentPx || accumulatedY <= -segmentPx) {
+            if (accumulatedY >= segmentPx) {
+                selectRelativeStep(1)
+                accumulatedY -= segmentPx
+            } else {
+                selectRelativeStep(-1)
+                accumulatedY += segmentPx
+            }
+            hasSegmentMove = true
+        }
+    }
+
+    val selectedIndex = pages.indexOf(currentPage).takeIf { it >= 0 } ?: pages.indexOf(ControlPage.Lab0)
+    val segmentHeightPx = if (heightPx > 0) heightPx / pages.size.toFloat() else 0f
+    val indicatorOffset by animateDpAsState(
+        targetValue = with(density) { (selectedIndex * segmentHeightPx).toDp() },
+        label = "Layer indicator offset",
+    )
+    val indicatorHeight = with(density) { segmentHeightPx.toDp() }
+
+    Box(
+        modifier =
+            modifier
+                .width(railWidth)
+                .fillMaxHeight()
+                .clip(shape)
+                .background(colorScheme.surface.copy(alpha = 0.9f))
+                .border(width = 1.dp, color = colorScheme.outline.copy(alpha = 0.62f), shape = shape)
+                .onSizeChanged { size -> heightPx = size.height }
+                .pointerInteropFilter { event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            activePointerId = event.pointerIdAtAction()
+                            gesturePage = currentPage
+                            val index = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                            lastY = event.getY(index)
+                            accumulatedY = 0f
+                            hasSegmentMove = false
+                            true
+                        }
+
+                        MotionEvent.ACTION_MOVE -> {
+                            activePointerId?.let { pointerId ->
+                                val pointerIndex = event.findPointerIndex(pointerId)
+                                if (pointerIndex >= 0) {
+                                    val y = event.getY(pointerIndex)
+                                    applyDrag(y - lastY)
+                                    lastY = y
+                                }
+                            }
+                            true
+                        }
+
+                        MotionEvent.ACTION_UP -> {
+                            if (activePointerId != null && !hasSegmentMove && currentPage != ControlPage.Lab0) {
+                                gesturePage = ControlPage.Lab0
+                                onPageSelected(ControlPage.Lab0)
+                            }
+                            resetPointerState()
+                            true
+                        }
+
+                        MotionEvent.ACTION_CANCEL -> {
+                            resetPointerState()
+                            true
+                        }
+
+                        MotionEvent.ACTION_POINTER_UP -> {
+                            if (event.pointerIdAtAction() == activePointerId) {
+                                if (!hasSegmentMove && currentPage != ControlPage.Lab0) {
+                                    gesturePage = ControlPage.Lab0
+                                    onPageSelected(ControlPage.Lab0)
+                                }
+                                resetPointerState()
+                            }
+                            true
+                        }
+
+                        else -> true
+                    }
+                },
+    ) {
+        if (heightPx > 0) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(indicatorHeight)
+                        .offset(y = indicatorOffset)
+                        .background(colorScheme.primary),
+            )
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            pages.forEachIndexed { index, page ->
+                LayerSegmentButton(
+                    label = page.label,
+                    selected = currentPage == page,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                )
+                if (index != pages.lastIndex) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(colorScheme.outline.copy(alpha = 0.2f)),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LayerSegmentButton(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val textColor by animateColorAsState(
+        targetValue = if (selected) colorScheme.onPrimary else colorScheme.onSurface,
+        label = "Layer segment text color",
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier =
+            modifier
+                .padding(horizontal = 4.dp),
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -1178,9 +1276,12 @@ private fun averageY(event: MotionEvent): Float {
     return total / samples
 }
 
-private enum class ControlRoute {
-    Console,
-    Settings,
+private fun MotionEvent.pointerIdAtAction(): Int {
+    if (pointerCount <= 0) {
+        return -1
+    }
+    val index = actionIndex.coerceIn(0, pointerCount - 1)
+    return getPointerId(index)
 }
 
 private enum class ControlPage(
@@ -1189,9 +1290,17 @@ private enum class ControlPage(
 ) {
     Keyboard("Keyboard", LabLayer.Default),
     Touchpad("Touchpad", LabLayer.Default),
-    Lab0("Lab0", LabLayer.Default),
-    Lab1("Lab1", LabLayer.FnNumber),
-    Lab2("Lab2", LabLayer.MouseNav),
+    Lab0(LabLayer.Default.displayName, LabLayer.Default),
+    Lab1("Fn\nNum", LabLayer.FnNumber),
+    Lab2("Mouse\nNav", LabLayer.MouseNav),
+    ;
+
+    val isPrimaryEntry: Boolean
+        get() = this in primaryEntries
+
+    companion object {
+        val primaryEntries: List<ControlPage> = listOf(Lab1, Lab0, Lab2)
+    }
 }
 
 private enum class TouchpadMode {
@@ -1247,8 +1356,6 @@ private fun ControlScreenPreview() {
             onInputAction = { _, _ -> },
             onEnvironmentActionTap = {},
             onConnectionActionTap = {},
-            onSurfaceProfileSave = {},
-            onSurfaceProfileReset = {},
         )
     }
 }

@@ -48,17 +48,5 @@ fun TouckeyApp(
                 snackbarHostState.showSnackbar(onConnectionAction(action))
             }
         },
-        onSurfaceProfileSave = { rows ->
-            val message = appContainer.userSurfaceProfileStore.saveKeyboardRows(rows)
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar(message)
-            }
-        },
-        onSurfaceProfileReset = {
-            val message = appContainer.userSurfaceProfileStore.resetKeyboardRows()
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar(message)
-            }
-        },
     )
 }

@@ -45,6 +45,7 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun LabInteractionPage(
     layer: LabLayer,
+    centerGap: Dp = 12.dp,
     onInputAction: (InputAction, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -264,7 +265,7 @@ internal fun LabInteractionPage(
     }
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(centerGap),
         modifier = modifier,
     ) {
         LabSidePane(
