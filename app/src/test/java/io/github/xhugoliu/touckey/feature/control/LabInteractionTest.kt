@@ -309,29 +309,18 @@ class LabInteractionTest {
     }
 
     @Test
-    fun `inner and outer paired horizontal gestures switch layers`() {
+    fun `lab layers expose base function and mouse navigation bindings`() {
         assertEquals(
-            LabLayerSwitch.Next,
-            labLayerSwitchForGestures(LabGesture.Right, LabGesture.Left),
+            LabKeyBinding(key = "D", label = "D"),
+            labBinding(LabSide.Left, LabCell(row = 2, column = 2), LabLayer.Default),
         )
         assertEquals(
-            LabLayerSwitch.Previous,
-            labLayerSwitchForGestures(LabGesture.Left, LabGesture.Right),
+            LabKeyBinding(key = "F11", label = "F11"),
+            labBinding(LabSide.Left, LabCell(row = 2, column = 2), LabLayer.FnNumber),
         )
-        assertEquals(null, labLayerSwitchForGestures(LabGesture.Right, LabGesture.Right))
-
-        assertEquals(LabLayer.FnNumber, labLayerAfter(LabLayer.Default, LabLayerSwitch.Next))
-        assertEquals(LabLayer.MouseNav, labLayerAfter(LabLayer.FnNumber, LabLayerSwitch.Next))
-        assertEquals(LabLayer.Default, labLayerAfter(LabLayer.MouseNav, LabLayerSwitch.Next))
-        assertEquals(LabLayer.MouseNav, labLayerAfter(LabLayer.Default, LabLayerSwitch.Previous))
-    }
-
-    @Test
-    fun `layer switch resets candidate and trigger state`() {
-        assertEquals(LabCell(), labResetCellForLayerSwitch())
         assertEquals(
-            LabTriggerState(),
-            labResetTriggerStateForLayerSwitch(),
+            LabMouseButtonBinding(button = MouseButton.Left, label = "M1"),
+            labBinding(LabSide.Right, LabCell(row = 2, column = 2), LabLayer.MouseNav),
         )
     }
 

@@ -265,8 +265,12 @@ fun ControlScreen(
                                         .then(consoleContentPadding),
                             )
 
-                        ControlPage.Lab ->
+                        ControlPage.Lab0,
+                        ControlPage.Lab1,
+                        ControlPage.Lab2,
+                        ->
                             LabInteractionPage(
+                                layer = currentPage.labLayer,
                                 onInputAction = onInputAction,
                                 modifier =
                                     Modifier
@@ -1179,10 +1183,15 @@ private enum class ControlRoute {
     Settings,
 }
 
-private enum class ControlPage(val label: String) {
-    Keyboard("Keyboard"),
-    Touchpad("Touchpad"),
-    Lab("Lab"),
+private enum class ControlPage(
+    val label: String,
+    val labLayer: LabLayer,
+) {
+    Keyboard("Keyboard", LabLayer.Default),
+    Touchpad("Touchpad", LabLayer.Default),
+    Lab0("Lab0", LabLayer.Default),
+    Lab1("Lab1", LabLayer.FnNumber),
+    Lab2("Lab2", LabLayer.MouseNav),
 }
 
 private enum class TouchpadMode {

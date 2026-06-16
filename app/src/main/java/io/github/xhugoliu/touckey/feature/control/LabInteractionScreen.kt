@@ -26,7 +26,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +43,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 internal fun LabInteractionPage(
+    layer: LabLayer,
     onInputAction: (InputAction, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -52,15 +52,11 @@ internal fun LabInteractionPage(
     val touchSlop = remember { ViewConfiguration.get(context).scaledTouchSlop.toFloat() }
     val segmentPx = remember(touchSlop) { touchSlop * 1.9f }
 
-    var currentLayer by rememberSaveable { mutableStateOf(LabLayer.Default) }
     var leftCandidate by remember { mutableStateOf(LabCell()) }
     var rightCandidate by remember { mutableStateOf(LabCell()) }
     var leftTriggerState by remember { mutableStateOf(LabTriggerState()) }
     var rightTriggerState by remember { mutableStateOf(LabTriggerState()) }
-    var leftMatrixActive by remember { mutableStateOf(false) }
-    var rightMatrixActive by remember { mutableStateOf(false) }
-    var leftPendingHorizontalGesture by remember { mutableStateOf<LabGesture?>(null) }
-    var rightPendingHorizontalGesture by remember { mutableStateOf<LabGesture?>(null) }
+    var previousLayer by remember { mutableStateOf(layer) }
 
     LaunchedEffect(leftTriggerState.activeHoldBinding, rightTriggerState.activeHoldBinding) {
         val repeatActions =
@@ -151,20 +147,13 @@ internal fun LabInteractionPage(
         }
     }
 
-    fun clearTriggerStateForLayerSwitch() {
+    fun resetForLayerChange() {
         dispatchTransition {
-            leftTriggerState = labResetTriggerStateForLayerSwitch()
-            rightTriggerState = labResetTriggerStateForLayerSwitch()
+            leftTriggerState = LabTriggerState()
+            rightTriggerState = LabTriggerState()
         }
-    }
-
-    fun performLayerSwitch(layerSwitch: LabLayerSwitch) {
-        clearTriggerStateForLayerSwitch()
-        leftCandidate = labResetCellForLayerSwitch()
-        rightCandidate = labResetCellForLayerSwitch()
-        leftPendingHorizontalGesture = null
-        rightPendingHorizontalGesture = null
-        currentLayer = labLayerAfter(currentLayer, layerSwitch)
+        leftCandidate = LabCell()
+        rightCandidate = LabCell()
         pulse(LabHapticPattern.LayerSwitch)
     }
 
@@ -206,79 +195,10 @@ internal fun LabInteractionPage(
         }
     }
 
-    fun pendingHorizontalGestureFor(side: LabSide): LabGesture? =
-        when (side) {
-            LabSide.Left -> leftPendingHorizontalGesture
-            LabSide.Right -> rightPendingHorizontalGesture
-        }
-
-    fun setPendingHorizontalGesture(
-        side: LabSide,
-        gesture: LabGesture?,
-    ) {
-        when (side) {
-            LabSide.Left -> leftPendingHorizontalGesture = gesture
-            LabSide.Right -> rightPendingHorizontalGesture = gesture
-        }
-    }
-
-    fun matrixActiveFor(side: LabSide): Boolean =
-        when (side) {
-            LabSide.Left -> leftMatrixActive
-            LabSide.Right -> rightMatrixActive
-        }
-
-    fun otherSide(side: LabSide): LabSide =
-        when (side) {
-            LabSide.Left -> LabSide.Right
-            LabSide.Right -> LabSide.Left
-        }
-
-    fun commitPendingHorizontalGesture(side: LabSide) {
-        val pending = pendingHorizontalGestureFor(side) ?: return
-        setPendingHorizontalGesture(side, null)
-        performGesture(side, pending)
-    }
-
-    fun commitPendingHorizontalGestures() {
-        commitPendingHorizontalGesture(LabSide.Left)
-        commitPendingHorizontalGesture(LabSide.Right)
-    }
-
     fun onGesture(
         side: LabSide,
         gesture: LabGesture,
     ) {
-        val other = otherSide(side)
-        if (gesture == LabGesture.Tap) {
-            commitPendingHorizontalGestures()
-            performGesture(side, gesture)
-            return
-        }
-
-        val horizontal = gesture == LabGesture.Left || gesture == LabGesture.Right
-        if (horizontal && matrixActiveFor(other)) {
-            val otherPending = pendingHorizontalGestureFor(other)
-            if (otherPending != null) {
-                val leftGesture = if (side == LabSide.Left) gesture else otherPending
-                val rightGesture = if (side == LabSide.Right) gesture else otherPending
-                val layerSwitch = labLayerSwitchForGestures(leftGesture, rightGesture)
-                setPendingHorizontalGesture(other, null)
-                if (layerSwitch != null) {
-                    performLayerSwitch(layerSwitch)
-                } else {
-                    performGesture(other, otherPending)
-                    performGesture(side, gesture)
-                }
-                return
-            }
-
-            commitPendingHorizontalGesture(side)
-            setPendingHorizontalGesture(side, gesture)
-            return
-        }
-
-        commitPendingHorizontalGestures()
         performGesture(side, gesture)
     }
 
@@ -335,16 +255,10 @@ internal fun LabInteractionPage(
         releaseHold(side, pulseFeedback = true, clearLocks = clearLocks)
     }
 
-    fun onMatrixActiveChange(
-        side: LabSide,
-        active: Boolean,
-    ) {
-        if (!active) {
-            commitPendingHorizontalGesture(side)
-        }
-        when (side) {
-            LabSide.Left -> leftMatrixActive = active
-            LabSide.Right -> rightMatrixActive = active
+    LaunchedEffect(layer) {
+        if (previousLayer != layer) {
+            resetForLayerChange()
+            previousLayer = layer
         }
     }
 
@@ -354,7 +268,7 @@ internal fun LabInteractionPage(
     ) {
         LabSidePane(
             side = LabSide.Left,
-            layer = currentLayer,
+            layer = layer,
             candidate = leftCandidate,
             activeHoldLabel = leftTriggerState.activeHoldBinding?.label,
             lockedModifiers = leftTriggerState.lockedModifiers,
@@ -364,7 +278,6 @@ internal fun LabInteractionPage(
             onHoldDown = { binding -> onHoldDown(LabSide.Left, binding) },
             onToggleLock = { binding -> onToggleLock(LabSide.Left, binding) },
             onHoldUp = { clearLocks -> onHoldUp(LabSide.Left, clearLocks) },
-            onMatrixActiveChange = { active -> onMatrixActiveChange(LabSide.Left, active) },
             modifier =
                 Modifier
                     .weight(1f)
@@ -372,7 +285,7 @@ internal fun LabInteractionPage(
         )
         LabSidePane(
             side = LabSide.Right,
-            layer = currentLayer,
+            layer = layer,
             candidate = rightCandidate,
             activeHoldLabel = rightTriggerState.activeHoldBinding?.label,
             lockedModifiers = rightTriggerState.lockedModifiers,
@@ -382,7 +295,6 @@ internal fun LabInteractionPage(
             onHoldDown = { binding -> onHoldDown(LabSide.Right, binding) },
             onToggleLock = { binding -> onToggleLock(LabSide.Right, binding) },
             onHoldUp = { clearLocks -> onHoldUp(LabSide.Right, clearLocks) },
-            onMatrixActiveChange = { active -> onMatrixActiveChange(LabSide.Right, active) },
             modifier =
                 Modifier
                     .weight(1f)
@@ -404,7 +316,6 @@ private fun LabSidePane(
     onHoldDown: (LabBinding) -> Unit,
     onToggleLock: (LabBinding) -> Unit,
     onHoldUp: (Boolean) -> Unit,
-    onMatrixActiveChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -432,7 +343,6 @@ private fun LabSidePane(
             tapSlopPx = tapSlopPx,
             segmentPx = segmentPx,
             onGesture = onGesture,
-            onActiveChange = onMatrixActiveChange,
             modifier =
                 Modifier
                     .weight(8f)
@@ -602,7 +512,6 @@ private fun LabMatrixZone(
     tapSlopPx: Float,
     segmentPx: Float,
     onGesture: (LabGesture) -> Unit,
-    onActiveChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var activePointerId by remember { mutableStateOf<Int?>(null) }
@@ -632,7 +541,6 @@ private fun LabMatrixZone(
                             if (activePointerId == null) {
                                 val index = event.actionIndex.coerceIn(0, event.pointerCount - 1)
                                 activePointerId = event.getPointerId(index)
-                                onActiveChange(true)
                                 downX = event.getX(index)
                                 downY = event.getY(index)
                                 lastX = downX
@@ -678,7 +586,6 @@ private fun LabMatrixZone(
                                     event.handleLabTap(pointerId, downX, downY, tapSlopPx, onGesture)
                                 }
                             }
-                            onActiveChange(false)
                             resetPointerState()
                             true
                         }
@@ -690,14 +597,12 @@ private fun LabMatrixZone(
                                         event.handleLabTap(pointerId, downX, downY, tapSlopPx, onGesture)
                                     }
                                 }
-                                onActiveChange(false)
                                 resetPointerState()
                             }
                             true
                         }
 
                         MotionEvent.ACTION_CANCEL -> {
-                            onActiveChange(false)
                             resetPointerState()
                             true
                         }

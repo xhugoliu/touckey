@@ -22,11 +22,6 @@ internal enum class LabLayer(
     MouseNav(displayName = "Mouse"),
 }
 
-internal enum class LabLayerSwitch {
-    Next,
-    Previous,
-}
-
 internal enum class LabSide(
     val prefix: String,
     val displayName: String,
@@ -234,34 +229,6 @@ internal fun segmentLabDrag(
         consumedY = consumedY,
     )
 }
-
-internal fun labLayerSwitchForGestures(
-    leftGesture: LabGesture,
-    rightGesture: LabGesture,
-): LabLayerSwitch? =
-    when {
-        leftGesture == LabGesture.Right && rightGesture == LabGesture.Left -> LabLayerSwitch.Next
-        leftGesture == LabGesture.Left && rightGesture == LabGesture.Right -> LabLayerSwitch.Previous
-        else -> null
-    }
-
-internal fun labLayerAfter(
-    layer: LabLayer,
-    switch: LabLayerSwitch,
-): LabLayer {
-    val layers = LabLayer.entries
-    val index = layers.indexOf(layer)
-    val nextIndex =
-        when (switch) {
-            LabLayerSwitch.Next -> (index + 1) % layers.size
-            LabLayerSwitch.Previous -> (index - 1 + layers.size) % layers.size
-        }
-    return layers[nextIndex]
-}
-
-internal fun labResetCellForLayerSwitch(): LabCell = LabCell()
-
-internal fun labResetTriggerStateForLayerSwitch(): LabTriggerState = LabTriggerState()
 
 internal fun labBinding(
     side: LabSide,
