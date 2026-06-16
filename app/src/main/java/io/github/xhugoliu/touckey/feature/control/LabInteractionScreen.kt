@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.xhugoliu.touckey.input.InputAction
+import kotlin.math.hypot
 import kotlinx.coroutines.delay
 
 @Composable
@@ -272,9 +273,11 @@ internal fun LabInteractionPage(
             candidate = leftCandidate,
             activeHoldLabel = leftTriggerState.activeHoldBinding?.label,
             lockedModifiers = leftTriggerState.lockedModifiers,
+            touchpadScrollMode = leftTriggerState.activeHoldBinding == LabTouchpadScrollBinding,
             tapSlopPx = touchSlop * 1.25f,
             segmentPx = segmentPx,
             onGesture = { onGesture(LabSide.Left, it) },
+            onTouchpadAction = { action -> onInputAction(action, false) },
             onHoldDown = { binding -> onHoldDown(LabSide.Left, binding) },
             onToggleLock = { binding -> onToggleLock(LabSide.Left, binding) },
             onHoldUp = { clearLocks -> onHoldUp(LabSide.Left, clearLocks) },
@@ -289,9 +292,11 @@ internal fun LabInteractionPage(
             candidate = rightCandidate,
             activeHoldLabel = rightTriggerState.activeHoldBinding?.label,
             lockedModifiers = rightTriggerState.lockedModifiers,
+            touchpadScrollMode = rightTriggerState.activeHoldBinding == LabTouchpadScrollBinding,
             tapSlopPx = touchSlop * 1.25f,
             segmentPx = segmentPx,
             onGesture = { onGesture(LabSide.Right, it) },
+            onTouchpadAction = { action -> onInputAction(action, false) },
             onHoldDown = { binding -> onHoldDown(LabSide.Right, binding) },
             onToggleLock = { binding -> onToggleLock(LabSide.Right, binding) },
             onHoldUp = { clearLocks -> onHoldUp(LabSide.Right, clearLocks) },
@@ -310,9 +315,11 @@ private fun LabSidePane(
     candidate: LabCell,
     activeHoldLabel: String?,
     lockedModifiers: List<String>,
+    touchpadScrollMode: Boolean,
     tapSlopPx: Float,
     segmentPx: Float,
     onGesture: (LabGesture) -> Unit,
+    onTouchpadAction: (InputAction) -> Unit,
     onHoldDown: (LabBinding) -> Unit,
     onToggleLock: (LabBinding) -> Unit,
     onHoldUp: (Boolean) -> Unit,
@@ -324,7 +331,7 @@ private fun LabSidePane(
     ) {
         LabHoldZone(
             side = side,
-            candidateBinding = labBinding(side = side, cell = candidate, layer = layer),
+            candidateBinding = labTriggerBinding(side = side, cell = candidate, layer = layer),
             activeHoldLabel = activeHoldLabel,
             lockedModifiers = lockedModifiers,
             onHoldDown = onHoldDown,
@@ -335,19 +342,30 @@ private fun LabSidePane(
                     .weight(2f)
                     .fillMaxWidth(),
         )
-        LabMatrixZone(
-            side = side,
-            layer = layer,
-            candidate = candidate,
-            lockedModifiers = lockedModifiers,
-            tapSlopPx = tapSlopPx,
-            segmentPx = segmentPx,
-            onGesture = onGesture,
-            modifier =
-                Modifier
-                    .weight(8f)
-                    .fillMaxWidth(),
-        )
+        if (labUsesTouchpad(side = side, layer = layer)) {
+            LabTouchpadZone(
+                scrollMode = touchpadScrollMode,
+                onTouchpadAction = onTouchpadAction,
+                modifier =
+                    Modifier
+                        .weight(8f)
+                        .fillMaxWidth(),
+            )
+        } else {
+            LabMatrixZone(
+                side = side,
+                layer = layer,
+                candidate = candidate,
+                lockedModifiers = lockedModifiers,
+                tapSlopPx = tapSlopPx,
+                segmentPx = segmentPx,
+                onGesture = onGesture,
+                modifier =
+                    Modifier
+                        .weight(8f)
+                        .fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -500,6 +518,140 @@ private fun LabHoldZone(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+private fun LabTouchpadZone(
+    scrollMode: Boolean,
+    onTouchpadAction: (InputAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var activePointerId by remember { mutableStateOf<Int?>(null) }
+    var tapPointerCount by remember { mutableStateOf(0) }
+    var tapCandidate by remember { mutableStateOf(false) }
+    var movedDistance by remember { mutableFloatStateOf(0f) }
+    var lastX by remember { mutableFloatStateOf(0f) }
+    var lastY by remember { mutableFloatStateOf(0f) }
+    val context = LocalContext.current
+    val touchSlop = remember { ViewConfiguration.get(context).scaledTouchSlop.toFloat() }
+    val shape = RoundedCornerShape(12.dp)
+
+    fun resetPointerState() {
+        activePointerId = null
+        tapPointerCount = 0
+        tapCandidate = false
+        movedDistance = 0f
+        lastX = 0f
+        lastY = 0f
+    }
+
+    Box(
+        modifier =
+            modifier
+                .clip(shape)
+                .background(
+                    if (scrollMode) {
+                        colorScheme.tertiaryContainer
+                    } else {
+                        colorScheme.surfaceVariant.copy(alpha = 0.44f)
+                    },
+                )
+                .border(
+                    width = if (scrollMode) 2.dp else 1.dp,
+                    color = if (scrollMode) colorScheme.tertiary else colorScheme.outline.copy(alpha = 0.58f),
+                    shape = shape,
+                )
+                .pointerInteropFilter { event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            if (activePointerId == null) {
+                                val index = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                                activePointerId = event.getPointerId(index)
+                                lastX = event.getX(index)
+                                lastY = event.getY(index)
+                                tapPointerCount = maxOf(tapPointerCount, event.pointerCount)
+                                tapCandidate = true
+                                movedDistance = 0f
+                            }
+                            true
+                        }
+
+                        MotionEvent.ACTION_POINTER_DOWN -> {
+                            if (activePointerId == null) {
+                                val index = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+                                activePointerId = event.getPointerId(index)
+                                lastX = event.getX(index)
+                                lastY = event.getY(index)
+                                tapCandidate = true
+                                movedDistance = 0f
+                            }
+                            tapPointerCount = maxOf(tapPointerCount, event.pointerCount)
+                            true
+                        }
+
+                        MotionEvent.ACTION_MOVE -> {
+                            activePointerId?.let { pointerId ->
+                                val pointerIndex = event.findPointerIndex(pointerId)
+                                if (pointerIndex >= 0) {
+                                    val currentX = event.getX(pointerIndex)
+                                    val currentY = event.getY(pointerIndex)
+                                    val deltaX = currentX - lastX
+                                    val deltaY = currentY - lastY
+                                    movedDistance += hypot(deltaX, deltaY)
+                                    if (movedDistance > touchSlop) {
+                                        tapCandidate = false
+                                    }
+                                    labTouchpadAction(deltaX = deltaX, deltaY = deltaY, scrollMode = scrollMode)
+                                        ?.let(onTouchpadAction)
+                                    lastX = currentX
+                                    lastY = currentY
+                                }
+                            }
+                            true
+                        }
+
+                        MotionEvent.ACTION_UP,
+                        -> {
+                            if (tapCandidate && movedDistance < touchSlop) {
+                                labTouchpadTapAction(tapPointerCount.coerceAtLeast(1))
+                                    ?.let(onTouchpadAction)
+                            }
+                            resetPointerState()
+                            true
+                        }
+
+                        MotionEvent.ACTION_CANCEL -> {
+                            resetPointerState()
+                            true
+                        }
+
+                        MotionEvent.ACTION_POINTER_UP -> {
+                            tapPointerCount = maxOf(tapPointerCount, event.pointerCount)
+                            if (event.pointerIdAtAction() == activePointerId && event.pointerCount > 1) {
+                                val replacementIndex = if (event.actionIndex == 0) 1 else 0
+                                activePointerId = event.getPointerId(replacementIndex)
+                                lastX = event.getX(replacementIndex)
+                                lastY = event.getY(replacementIndex)
+                            }
+                            true
+                        }
+
+                        else -> true
+                    }
+                },
+    ) {
+        Text(
+            text = if (scrollMode) "SCROLL" else "TOUCHPAD",
+            color = if (scrollMode) colorScheme.onTertiaryContainer else colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp),
+        )
     }
 }
 

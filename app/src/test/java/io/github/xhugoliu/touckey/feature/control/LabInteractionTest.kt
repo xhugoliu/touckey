@@ -109,14 +109,14 @@ class LabInteractionTest {
     }
 
     @Test
-    fun `mouse navigation layer maps pointer scroll mouse and arrow bindings`() {
+    fun `mouse navigation layer uses touchpad on left and keeps mouse navigation on right`() {
         assertEquals(
-            LabScrollBinding(vertical = 6, label = "Scr U"),
-            labBinding(LabSide.Left, LabCell(row = 0, column = 2), LabLayer.MouseNav),
+            LabTouchpadScrollBinding,
+            labTriggerBinding(LabSide.Left, LabCell(), LabLayer.MouseNav),
         )
         assertEquals(
-            LabPointerMoveBinding(deltaX = 10f, deltaY = -10f, label = "Ptr UR"),
-            labBinding(LabSide.Left, LabCell(row = 1, column = 3), LabLayer.MouseNav),
+            LabEmptyBinding,
+            labBinding(LabSide.Left, LabCell(row = 2, column = 2), LabLayer.MouseNav),
         )
         assertEquals(
             LabMouseButtonBinding(button = MouseButton.Forward, label = "M5"),
@@ -126,6 +126,29 @@ class LabInteractionTest {
             LabKeyBinding(key = "PageDown", label = "PgDn"),
             labBinding(LabSide.Right, LabCell(row = 4, column = 2), LabLayer.MouseNav),
         )
+    }
+
+    @Test
+    fun `lab touchpad maps drag to pointer move and trigger drag to scroll`() {
+        assertEquals(true, labUsesTouchpad(LabSide.Left, LabLayer.MouseNav))
+        assertEquals(false, labUsesTouchpad(LabSide.Right, LabLayer.MouseNav))
+        assertEquals(null, labTouchpadAction(deltaX = 0.2f, deltaY = 0.1f, scrollMode = false))
+        assertEquals(null, labTouchpadAction(deltaX = 0.5f, deltaY = 0.2f, scrollMode = true))
+        assertEquals(
+            InputAction.PointerMoveAction(deltaX = 19f, deltaY = -9.5f),
+            labTouchpadAction(deltaX = 10f, deltaY = -5f, scrollMode = false),
+        )
+        assertEquals(
+            InputAction.ScrollAction(vertical = 0, horizontal = -20),
+            labTouchpadAction(deltaX = 10f, deltaY = 5f, scrollMode = true),
+        )
+        assertEquals(
+            InputAction.ScrollAction(vertical = 22, horizontal = 0),
+            labTouchpadAction(deltaX = 5f, deltaY = -10f, scrollMode = true),
+        )
+        assertEquals(InputAction.MouseButtonClickAction(MouseButton.Left), labTouchpadTapAction(pointerCount = 1))
+        assertEquals(InputAction.MouseButtonClickAction(MouseButton.Right), labTouchpadTapAction(pointerCount = 2))
+        assertEquals(null, labTouchpadTapAction(pointerCount = 3))
     }
 
     @Test

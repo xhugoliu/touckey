@@ -5,13 +5,16 @@ import io.github.xhugoliu.touckey.input.InputAction
 import io.github.xhugoliu.touckey.input.MouseButton
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 internal const val LAB_MATRIX_SIZE = 5
 internal const val LAB_CENTER_INDEX = 2
 
-private const val LAB_POINTER_CARDINAL_STEP = 14f
-private const val LAB_POINTER_DIAGONAL_STEP = 10f
-private const val LAB_SCROLL_STEP = 6
+private const val LAB_TOUCHPAD_POINTER_THRESHOLD = 0.35f
+private const val LAB_TOUCHPAD_SCROLL_THRESHOLD = 0.75f
+private const val LAB_TOUCHPAD_POINTER_MULTIPLIER = 1.9f
+private const val LAB_TOUCHPAD_VERTICAL_SCROLL_MULTIPLIER = 2.2f
+private const val LAB_TOUCHPAD_HORIZONTAL_SCROLL_MULTIPLIER = 2.0f
 private val LOCKABLE_MODIFIERS: Set<String> = setOf("Ctrl", "Shift", "Alt", "Cmd")
 
 internal enum class LabLayer(
@@ -61,6 +64,10 @@ internal data object LabEmptyBinding : LabBinding {
     override val enabled: Boolean = false
 }
 
+internal data object LabTouchpadScrollBinding : LabBinding {
+    override val label: String = "Scroll"
+}
+
 internal data class LabKeyBinding(
     val key: String,
     override val label: String = key.labDisplayLabel(),
@@ -80,22 +87,6 @@ internal data class LabMouseButtonBinding(
     override val label: String,
 ) : LabBinding {
     override val activeMouseButton: MouseButton = button
-}
-
-internal data class LabPointerMoveBinding(
-    val deltaX: Float,
-    val deltaY: Float,
-    override val label: String,
-) : LabBinding {
-    override val repeatAction: InputAction = InputAction.PointerMoveAction(deltaX = deltaX, deltaY = deltaY)
-}
-
-internal data class LabScrollBinding(
-    val vertical: Int = 0,
-    val horizontal: Int = 0,
-    override val label: String,
-) : LabBinding {
-    override val repeatAction: InputAction = InputAction.ScrollAction(vertical = vertical, horizontal = horizontal)
 }
 
 internal data class LabTriggerState(
@@ -235,6 +226,63 @@ internal fun labBinding(
     cell: LabCell,
     layer: LabLayer = LabLayer.Default,
 ): LabBinding = labBindingRows(layer, side)[cell.row][cell.column]
+
+internal fun labTriggerBinding(
+    side: LabSide,
+    cell: LabCell,
+    layer: LabLayer = LabLayer.Default,
+): LabBinding =
+    if (labUsesTouchpad(side = side, layer = layer)) {
+        LabTouchpadScrollBinding
+    } else {
+        labBinding(side = side, cell = cell, layer = layer)
+    }
+
+internal fun labUsesTouchpad(
+    side: LabSide,
+    layer: LabLayer,
+): Boolean = side == LabSide.Left && layer == LabLayer.MouseNav
+
+internal fun labTouchpadAction(
+    deltaX: Float,
+    deltaY: Float,
+    scrollMode: Boolean,
+): InputAction? =
+    if (scrollMode) {
+        if (abs(deltaX) < LAB_TOUCHPAD_SCROLL_THRESHOLD && abs(deltaY) < LAB_TOUCHPAD_SCROLL_THRESHOLD) {
+            null
+        } else {
+            val horizontal =
+                if (abs(deltaX) > abs(deltaY)) {
+                    (-deltaX * LAB_TOUCHPAD_HORIZONTAL_SCROLL_MULTIPLIER).roundToInt()
+                } else {
+                    0
+                }
+            val vertical =
+                if (abs(deltaY) >= abs(deltaX)) {
+                    (-deltaY * LAB_TOUCHPAD_VERTICAL_SCROLL_MULTIPLIER).roundToInt()
+                } else {
+                    0
+                }
+            InputAction.ScrollAction(vertical = vertical, horizontal = horizontal)
+        }
+    } else {
+        if (abs(deltaX) < LAB_TOUCHPAD_POINTER_THRESHOLD && abs(deltaY) < LAB_TOUCHPAD_POINTER_THRESHOLD) {
+            null
+        } else {
+            InputAction.PointerMoveAction(
+                deltaX = deltaX * LAB_TOUCHPAD_POINTER_MULTIPLIER,
+                deltaY = deltaY * LAB_TOUCHPAD_POINTER_MULTIPLIER,
+            )
+        }
+    }
+
+internal fun labTouchpadTapAction(pointerCount: Int): InputAction? =
+    when (pointerCount) {
+        1 -> InputAction.MouseButtonClickAction(MouseButton.Left)
+        2 -> InputAction.MouseButtonClickAction(MouseButton.Right)
+        else -> null
+    }
 
 internal fun isLockableModifier(key: String): Boolean = key in LOCKABLE_MODIFIERS
 
@@ -377,11 +425,11 @@ private val LAB_BINDING_ROWS: Map<LabLayer, Map<LabSide, List<List<LabBinding>>>
             mapOf(
                 LabSide.Left to
                     sideRows(
-                        row(key("Alt"), none(), scroll(vertical = LAB_SCROLL_STEP, label = "Scr U"), none(), key("Shift")),
-                        row(none(), pointer(-LAB_POINTER_DIAGONAL_STEP, -LAB_POINTER_DIAGONAL_STEP, "Ptr UL"), pointer(0f, -LAB_POINTER_CARDINAL_STEP, "Ptr U"), pointer(LAB_POINTER_DIAGONAL_STEP, -LAB_POINTER_DIAGONAL_STEP, "Ptr UR"), none()),
-                        row(scroll(horizontal = -LAB_SCROLL_STEP, label = "Scr L"), pointer(-LAB_POINTER_CARDINAL_STEP, 0f, "Ptr L"), none(), pointer(LAB_POINTER_CARDINAL_STEP, 0f, "Ptr R"), scroll(horizontal = LAB_SCROLL_STEP, label = "Scr R")),
-                        row(none(), pointer(-LAB_POINTER_DIAGONAL_STEP, LAB_POINTER_DIAGONAL_STEP, "Ptr DL"), pointer(0f, LAB_POINTER_CARDINAL_STEP, "Ptr D"), pointer(LAB_POINTER_DIAGONAL_STEP, LAB_POINTER_DIAGONAL_STEP, "Ptr DR"), none()),
-                        row(key("Cmd"), none(), scroll(vertical = -LAB_SCROLL_STEP, label = "Scr D"), none(), key("Ctrl")),
+                        row(none(), none(), none(), none(), none()),
+                        row(none(), none(), none(), none(), none()),
+                        row(none(), none(), none(), none(), none()),
+                        row(none(), none(), none(), none(), none()),
+                        row(none(), none(), none(), none(), none()),
                     ),
                 LabSide.Right to
                     sideRows(
@@ -417,18 +465,6 @@ private fun mouse(
     button: MouseButton,
     label: String,
 ): LabBinding = LabMouseButtonBinding(button = button, label = label)
-
-private fun pointer(
-    deltaX: Float,
-    deltaY: Float,
-    label: String,
-): LabBinding = LabPointerMoveBinding(deltaX = deltaX, deltaY = deltaY, label = label)
-
-private fun scroll(
-    vertical: Int = 0,
-    horizontal: Int = 0,
-    label: String,
-): LabBinding = LabScrollBinding(vertical = vertical, horizontal = horizontal, label = label)
 
 private fun String.labDisplayLabel(): String =
     when (this) {
