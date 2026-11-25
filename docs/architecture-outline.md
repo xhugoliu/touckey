@@ -152,10 +152,9 @@ Touckey 与 QMK/ZMK 等固件的关键差异是：输入表面不是物理矩阵
 
 ## 参考实现
 
-工作区中已经克隆了两个有参考价值的项目：
+这两个项目可作为蓝牙 HID 实现的参考：
 
 - `hid-barcode-scanner`
-  本地：[hid-barcode-scanner](/Users/xhugoliu/Projects/hid-barcode-scanner)
   GitHub：https://github.com/Fabi019/hid-barcode-scanner
   更适合参考生命周期管理和 HID 服务结构
 - `Kontroller`
